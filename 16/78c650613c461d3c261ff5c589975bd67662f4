@@ -1,0 +1,46 @@
+go.mod
+  s_e235e14927312e::t_60a7bb703b2432 6,22,28-30,36
+internal/store/store_test.go
+  s_e235e14927312e::t_bd191d79ebbb2e 192-244
+CHANGELOG.md
+  s_e235e14927312e::t_a249772690edc1 9-24
+internal/mcpserver/mcpserver.go
+  s_e235e14927312e::t_b006b8c3118fd4 68
+  s_e235e14927312e::t_c175399b0deed4 1-45,111,134-143
+  s_e235e14927312e::t_3c3f36c6cc7b91 46-67,69-110,112-133
+docs/adr/0002-mcp-query-interface.md
+  s_e235e14927312e::t_da1919431b0f54 1-47
+internal/store/store.go
+  s_e235e14927312e::t_1360bf438d9bf8 515-527
+cmd/otelstore/main.go
+  s_e235e14927312e::t_81346bc8c7ab85 13
+  s_e235e14927312e::t_17f8bd7fcb855a 23
+  s_e235e14927312e::t_9ff18e34d0bd62 42
+  s_e235e14927312e::t_d81ea361ded515 63-72
+  s_e235e14927312e::t_bdef80a867737e 88-94
+  s_e235e14927312e::t_d9e36307dda8ec 112-114
+docs/adr/README.md
+  s_e235e14927312e::t_bda11658afa2bf 8
+internal/mcpserver/mcpserver_test.go
+  s_e235e14927312e::t_a94d988cef0a9b 120-121,126
+  s_e235e14927312e::t_2048d4c9777cac 235-236,238,242,246
+  s_e235e14927312e::t_19b25e473c4910 1-119,122-125,127-234,237,239-241,243-245,247-272
+go.sum
+  s_e235e14927312e::t_2dbf2d725b294a 14-15,20-21,32-33,40-43,46-47,72-73
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "1678c650613c461d3c261ff5c589975bd67662f4",
+  "prompts": {},
+  "sessions": {
+    "s_e235e14927312e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4ff4b505-745a-4f5b-8d6b-181ff86bb3fe",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "3rg0n <62959009+3rg0n@users.noreply.github.com>"
+    }
+  }
+}
