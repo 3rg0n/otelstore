@@ -1,0 +1,45 @@
+# Build artifacts
+*.exe
+*.dll
+*.so
+*.dylib
+/otelstore
+/dist/
+/bin/
+
+# Go
+*.test
+*.out
+coverage.*
+vendor/
+
+# Rust
+/target/
+**/target/
+*.rlib
+
+# Secrets / credentials (never commit)
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+*_secret*
+*.token
+
+# Local databases / telemetry data
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Local research scratch (not a deliverable)
+OPENOBSERVE_IMAGE_SIZES.md

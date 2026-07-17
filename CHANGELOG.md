@@ -1,0 +1,52 @@
+# Changelog
+
+All notable changes to this project are documented here. Format follows
+[Keep a Changelog](https://keepachangelog.com); this project adheres to
+semantic versioning once released.
+
+## [Unreleased]
+
+### Added — 2026-07-17
+
+- **Emit-side conformance kit** — the emit contract for agentic-orchestrator
+  telemetry, so emitters produce query-able span shapes:
+  - `docs/overlay-schema.md` — the contract: owned correlation keys (`run_id`,
+    `job_id`) as the stable spine; OpenTelemetry GenAI semantic conventions
+    (`gen_ai.*`) as decoration only; rule that span name == `gen_ai.operation.name`
+    byte-for-byte across languages; model op pinned to `chat`.
+  - `emit/go` — Go emitter helper (`StartWorkflowSpan`/`StartAgentSpan`/
+    `StartPlanSpan`/`StartToolSpan`/`StartModelSpan`/`RecordError`) with a
+    real conformance test suite (in-memory exporter; asserts the negative
+    case that `job_id` is absent on workflow spans).
+  - `emit/rust` — Rust emitter crate mirroring the Go contract byte-for-byte,
+    with an equivalent conformance test suite.
+- **Headless single-binary MVP** — OTLP in, local store, query out; no UI:
+  - `internal/receiver` — OTLP/HTTP receiver (`POST /v1/traces`, `/v1/logs`,
+    protobuf); flattens resource/scope/span attributes and promotes owned keys.
+  - `internal/store` — pure-Go SQLite store (`modernc.org/sqlite`, no CGO):
+    `spans` + `logs` tables, owned keys promoted to indexed columns, all
+    attributes stored generically as JSON (never special-cases `gen_ai.*`).
+  - `internal/query` — REST query API per `api/openapi.yaml`:
+    `GET /v1/traces/{trace_id}` and `GET /v1/query?job_id|run_id|trace_id`
+    (exactly-one-filter, correlated spans + logs).
+  - `cmd/otelstore` — single binary wiring receiver + query servers with
+    hardened HTTP timeouts and graceful shutdown.
+  - `test/e2e_test.go` — end-to-end proof: the `emit/go` helper exports via a
+    real OTLP HTTP exporter → receiver → store → query, asserting emit span
+    names, error status, correlated logs, and trace ordering survive the round trip.
+- **`api/openapi.yaml`** — OpenAPI 3.1 schema for the query API (API-first).
+- **ADR 0001** — Go core with pure-Go SQLite storage; REST over GraphQL for the
+  fixed-query, model-facing consumer.
+
+### Security
+
+- Static per-key SQL (no identifier interpolation); `ReadHeaderTimeout` and
+  related timeouts on both HTTP servers. Gate clean: `gosec` 0 issues,
+  `staticcheck`, `govulncheck`, `go vet`, and `CGO_ENABLED=0` build all pass.
+
+### Notes / deferred
+
+- Audit-log durability deferred (telemetry rides best-effort OTLP); `run_id`/
+  `job_id` on every record keep a future durable audit store join-able.
+- Open: pin exact GenAI semconv commit SHA in the overlay; confirm the
+  `gen_ai.conversation.id` grain (currently workflow-run) with the orchestrator.

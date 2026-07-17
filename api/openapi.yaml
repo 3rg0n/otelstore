@@ -1,0 +1,121 @@
+openapi: 3.1.0
+info:
+  title: Telemetry Query API
+  version: 0.1.0
+  description: >
+    Headless OTLP store query API for the self-remediation loop. Ingest is OTLP
+    (see /v1/traces and /v1/logs receivers). Query is a small fixed REST surface —
+    no UI. The primary consumer is an agent asking "why did job X fail?".
+    Owned correlation keys (run_id, job_id) are promoted to indexed columns;
+    gen_ai.* attributes are stored generically. See docs/overlay-schema.md.
+servers:
+  - url: http://localhost:4319
+    description: Local single-binary instance (query API port)
+paths:
+  /v1/traces/{trace_id}:
+    get:
+      summary: Get all spans for a trace, as a flat list ordered by start time.
+      description: >
+        Returns every span carrying the given trace_id. Flat list with
+        parent_span_id so the caller can reconstruct the tree; MVP does not
+        nest server-side.
+      operationId: getTrace
+      parameters:
+        - name: trace_id
+          in: path
+          required: true
+          schema: { type: string }
+          description: Hex-encoded trace id.
+      responses:
+        "200":
+          description: Spans for the trace (possibly empty).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SpanList" }
+        "400": { description: Malformed trace_id. }
+  /v1/query:
+    get:
+      summary: Correlated spans + logs for a run/job/trace (the healer query).
+      description: >
+        The core remediation query. Filter by exactly one of job_id, run_id, or
+        trace_id. Returns matching spans AND logs correlated by that key, so an
+        agent gets the full failure context in one call. At least one filter is
+        required.
+      operationId: query
+      parameters:
+        - name: job_id
+          in: query
+          schema: { type: string }
+          description: Single-verb task id (primary healer lookup key).
+        - name: run_id
+          in: query
+          schema: { type: string }
+          description: Workflow-run id (whole-run tree).
+        - name: trace_id
+          in: query
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 1000, maximum: 10000 }
+      responses:
+        "200":
+          description: Correlated telemetry for the key.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QueryResult" }
+        "400": { description: No filter, or more than one filter, supplied. }
+components:
+  schemas:
+    Span:
+      type: object
+      required: [trace_id, span_id, name, start_ns, end_ns]
+      properties:
+        trace_id: { type: string }
+        span_id: { type: string }
+        parent_span_id: { type: string }
+        name: { type: string, description: "OTel span name == gen_ai.operation.name" }
+        kind: { type: integer }
+        start_ns: { type: integer, format: int64 }
+        end_ns: { type: integer, format: int64 }
+        status_code: { type: integer, description: "0 unset, 1 ok, 2 error" }
+        status_message: { type: string }
+        run_id: { type: string, description: "promoted owned key" }
+        job_id: { type: string, description: "promoted owned key" }
+        attributes:
+          type: object
+          additionalProperties: true
+          description: "All span attributes incl. gen_ai.*, stored generically."
+        events:
+          type: array
+          items: { type: object, additionalProperties: true }
+    LogRecord:
+      type: object
+      required: [time_ns]
+      properties:
+        trace_id: { type: string }
+        span_id: { type: string }
+        time_ns: { type: integer, format: int64 }
+        severity_number: { type: integer }
+        severity_text: { type: string }
+        body: { type: string }
+        run_id: { type: string }
+        job_id: { type: string }
+        attributes:
+          type: object
+          additionalProperties: true
+    SpanList:
+      type: object
+      properties:
+        trace_id: { type: string }
+        spans:
+          type: array
+          items: { $ref: "#/components/schemas/Span" }
+    QueryResult:
+      type: object
+      properties:
+        spans:
+          type: array
+          items: { $ref: "#/components/schemas/Span" }
+        logs:
+          type: array
+          items: { $ref: "#/components/schemas/LogRecord" }
