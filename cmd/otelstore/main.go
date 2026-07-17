@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/otel/internal/mcpserver"
 	"github.com/otel/internal/query"
 	"github.com/otel/internal/receiver"
 	"github.com/otel/internal/store"
@@ -19,6 +20,7 @@ func main() {
 	dbPath := flag.String("db-path", ":memory:", "Path to SQLite database file")
 	ingestPort := flag.String("ingest-port", ":4318", "Port for OTLP ingest server")
 	queryPort := flag.String("query-port", ":4319", "Port for query API server")
+	mcpAddr := flag.String("mcp-addr", ":4320", "Port for MCP query server")
 	flag.Parse()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -37,6 +39,7 @@ func main() {
 	// Create handlers
 	ingestHandler := receiver.NewHandler(s)
 	queryHandler := query.NewHandler(s)
+	mcpSrv := mcpserver.NewServer(s)
 
 	// Create servers with timeouts (prevent Slowloris attack)
 	ingestServer := &http.Server{
@@ -51,6 +54,16 @@ func main() {
 	queryServer := &http.Server{
 		Addr:              *queryPort,
 		Handler:           queryHandler,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+
+	mcpHandler := mcpserver.NewStreamableHTTPHandler(mcpSrv)
+	mcpHTTPServer := &http.Server{
+		Addr:              *mcpAddr,
+		Handler:           mcpHandler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -72,6 +85,13 @@ func main() {
 		}
 	}()
 
+	go func() {
+		log.Printf("Starting MCP query server on %s", *mcpAddr)
+		if err := mcpHTTPServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("MCP server error: %v", err)
+		}
+	}()
+
 	// Wait for interrupt signal
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
@@ -88,6 +108,9 @@ func main() {
 	}
 	if err := queryServer.Shutdown(shutdownCtx); err != nil {
 		log.Printf("Query server shutdown error: %v", err)
+	}
+	if err := mcpHTTPServer.Shutdown(shutdownCtx); err != nil {
+		log.Printf("MCP server shutdown error: %v", err)
 	}
 
 	log.Println("Shutdown complete")

@@ -5,6 +5,7 @@ Index of ADRs for this project. See individual files for full context.
 | ADR | Title | Status | Date |
 |-----|-------|--------|------|
 | [0001](0001-go-core-pure-sqlite.md) | Go core with pure-Go SQLite storage | accepted | 2026-07-16 |
+| [0002](0002-mcp-query-interface.md) | MCP query interface for agent self-remediation | accepted | 2026-07-17 |
 
 ## Conventions
 

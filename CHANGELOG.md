@@ -6,6 +6,22 @@ semantic versioning once released.
 
 ## [Unreleased]
 
+### Added — 2026-07-17 (MCP query server)
+
+- **MCP query server** (`internal/mcpserver`) — exposes the store as Model
+  Context Protocol tools so an agent can self-remediate over its native
+  protocol (official `go-sdk` v1.6.1, streamable HTTP, structured output):
+  - `query_job(job_id)` → spans + logs + an explicit `errors` array
+    (error-status spans surfaced for the healer).
+  - `query_run(run_id)` → spans + logs for a workflow run.
+  - `get_trace(trace_id)` → span tree.
+  - Thin layer over `store.QueryByKey`/`GetTrace` (no duplicated query logic);
+    handlers are named funcs both the server registers and tests invoke.
+  - `store.ErrorSpans` helper filters error-status spans (status_code==2).
+  - Hosted in `cmd/otelstore` on `-mcp-addr` (default `:4320`) with HTTP
+    timeout hardening and graceful shutdown, alongside the ingest/query servers.
+- **ADR 0002** — MCP query interface for agent self-remediation.
+
 ### Added — 2026-07-17
 
 - **Emit-side conformance kit** — the emit contract for agentic-orchestrator

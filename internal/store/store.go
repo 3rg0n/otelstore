@@ -512,6 +512,19 @@ func scanLogs(rows *sql.Rows) ([]map[string]any, error) {
 	return results, nil
 }
 
+// ErrorSpans filters spans with error status (status_code == 2).
+func ErrorSpans(spans []map[string]any) []map[string]any {
+	errors := make([]map[string]any, 0)
+	for _, span := range spans {
+		if statusCode, ok := span["status_code"]; ok {
+			if code, ok := statusCode.(int64); ok && code == 2 {
+				errors = append(errors, span)
+			}
+		}
+	}
+	return errors
+}
+
 // Close closes the database connection.
 func (s *Store) Close() error {
 	if s.db != nil {

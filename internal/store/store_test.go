@@ -189,3 +189,56 @@ func TestQueryByKeyBadFilter(t *testing.T) {
 		t.Errorf("expected empty results, got %d spans and %d logs", len(spans), len(logs))
 	}
 }
+
+func TestErrorSpans(t *testing.T) {
+	spans := []map[string]any{
+		{
+			"trace_id":    "abc123",
+			"span_id":     "span1",
+			"name":        "successful_span",
+			"status_code": int64(0),
+		},
+		{
+			"trace_id":    "abc123",
+			"span_id":     "span2",
+			"name":        "error_span",
+			"status_code": int64(2),
+		},
+		{
+			"trace_id":    "abc123",
+			"span_id":     "span3",
+			"name":        "another_error",
+			"status_code": int64(2),
+		},
+	}
+
+	errors := ErrorSpans(spans)
+
+	if len(errors) != 2 {
+		t.Errorf("Expected 2 error spans, got %d", len(errors))
+	}
+
+	for _, span := range errors {
+		code := span["status_code"].(int64)
+		if code != 2 {
+			t.Errorf("Expected status_code 2, got %d", code)
+		}
+	}
+}
+
+func TestErrorSpansEmpty(t *testing.T) {
+	spans := []map[string]any{
+		{
+			"trace_id":    "abc123",
+			"span_id":     "span1",
+			"name":        "successful_span",
+			"status_code": int64(0),
+		},
+	}
+
+	errors := ErrorSpans(spans)
+
+	if len(errors) != 0 {
+		t.Errorf("Expected 0 error spans, got %d", len(errors))
+	}
+}
