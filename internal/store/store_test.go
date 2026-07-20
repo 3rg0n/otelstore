@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	otlpcommonv1 "go.opentelemetry.io/proto/otlp/common/v1"
+	otlpmetricsv1 "go.opentelemetry.io/proto/otlp/metrics/v1"
 	otlptracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
 )
 
@@ -240,5 +241,185 @@ func TestErrorSpansEmpty(t *testing.T) {
 
 	if len(errors) != 0 {
 		t.Errorf("Expected 0 error spans, got %d", len(errors))
+	}
+}
+
+func TestInsertMetrics(t *testing.T) {
+	ctx := context.Background()
+
+	st, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer st.Close()
+
+	if err := st.InitSchema(ctx); err != nil {
+		t.Fatalf("InitSchema: %v", err)
+	}
+
+	// Create a Gauge metric with a double value
+	gaugeMetric := &otlpmetricsv1.Metric{
+		Name: "cpu_usage",
+		Data: &otlpmetricsv1.Metric_Gauge{
+			Gauge: &otlpmetricsv1.Gauge{
+				DataPoints: []*otlpmetricsv1.NumberDataPoint{
+					{
+						TimeUnixNano: 1000000000,
+						Value: &otlpmetricsv1.NumberDataPoint_AsDouble{
+							AsDouble: 42.5,
+						},
+						Attributes: []*otlpcommonv1.KeyValue{
+							{
+								Key: "run_id",
+								Value: &otlpcommonv1.AnyValue{
+									Value: &otlpcommonv1.AnyValue_StringValue{StringValue: "R1"},
+								},
+							},
+							{
+								Key: "job_id",
+								Value: &otlpcommonv1.AnyValue{
+									Value: &otlpcommonv1.AnyValue_StringValue{StringValue: "J1"},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Create a Sum metric with an int value
+	sumMetric := &otlpmetricsv1.Metric{
+		Name: "request_count",
+		Data: &otlpmetricsv1.Metric_Sum{
+			Sum: &otlpmetricsv1.Sum{
+				DataPoints: []*otlpmetricsv1.NumberDataPoint{
+					{
+						TimeUnixNano: 2000000000,
+						Value: &otlpmetricsv1.NumberDataPoint_AsInt{
+							AsInt: 100,
+						},
+						Attributes: []*otlpcommonv1.KeyValue{
+							{
+								Key: "run_id",
+								Value: &otlpcommonv1.AnyValue{
+									Value: &otlpcommonv1.AnyValue_StringValue{StringValue: "R1"},
+								},
+							},
+							{
+								Key: "job_id",
+								Value: &otlpcommonv1.AnyValue{
+									Value: &otlpcommonv1.AnyValue_StringValue{StringValue: "J2"},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Insert metrics
+	if err := st.InsertMetrics(ctx, []*otlpmetricsv1.Metric{gaugeMetric, sumMetric}, nil, nil); err != nil {
+		t.Fatalf("InsertMetrics: %v", err)
+	}
+
+	// Query gauge metric
+	metrics, err := st.QueryMetrics(ctx, "cpu_usage", 1000)
+	if err != nil {
+		t.Fatalf("QueryMetrics cpu_usage: %v", err)
+	}
+	if len(metrics) != 1 {
+		t.Errorf("expected 1 cpu_usage metric, got %d", len(metrics))
+	}
+	gauge := metrics[0]
+	if gauge["value_double"] != 42.5 {
+		t.Errorf("expected value_double 42.5, got %v", gauge["value_double"])
+	}
+	if gauge["run_id"] != "R1" {
+		t.Errorf("expected run_id R1, got %v", gauge["run_id"])
+	}
+	if gauge["job_id"] != "J1" {
+		t.Errorf("expected job_id J1, got %v", gauge["job_id"])
+	}
+
+	// Query sum metric
+	metrics, err = st.QueryMetrics(ctx, "request_count", 1000)
+	if err != nil {
+		t.Fatalf("QueryMetrics request_count: %v", err)
+	}
+	if len(metrics) != 1 {
+		t.Errorf("expected 1 request_count metric, got %d", len(metrics))
+	}
+	sum := metrics[0]
+	if sum["value_double"] != 100.0 {
+		t.Errorf("expected value_double 100.0 (from int), got %v", sum["value_double"])
+	}
+	if sum["job_id"] != "J2" {
+		t.Errorf("expected job_id J2, got %v", sum["job_id"])
+	}
+}
+
+func TestDeleteBefore(t *testing.T) {
+	ctx := context.Background()
+
+	st, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer st.Close()
+
+	if err := st.InitSchema(ctx); err != nil {
+		t.Fatalf("InitSchema: %v", err)
+	}
+
+	// Insert spans at old and new timestamps
+	span := &otlptracev1.Span{
+		TraceId:           []byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},
+		SpanId:            []byte{1, 2, 3, 4, 5, 6, 7, 8},
+		Name:              "test",
+		StartTimeUnixNano: 1000000000, // old
+		EndTimeUnixNano:   2000000000,
+	}
+	if err := st.InsertSpans(ctx, []*otlptracev1.Span{span}, nil, nil); err != nil {
+		t.Fatalf("InsertSpans: %v", err)
+	}
+
+	span2 := &otlptracev1.Span{
+		TraceId:           []byte{1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},
+		SpanId:            []byte{2, 2, 3, 4, 5, 6, 7, 8},
+		Name:              "test2",
+		StartTimeUnixNano: 5000000000, // new
+		EndTimeUnixNano:   6000000000,
+	}
+	if err := st.InsertSpans(ctx, []*otlptracev1.Span{span2}, nil, nil); err != nil {
+		t.Fatalf("InsertSpans: %v", err)
+	}
+
+	// Delete before a cutoff that should remove the first span but keep the second
+	deleted, err := st.DeleteBefore(ctx, 4000000000)
+	if err != nil {
+		t.Fatalf("DeleteBefore: %v", err)
+	}
+
+	if deleted < 1 {
+		t.Errorf("expected at least 1 row deleted, got %d", deleted)
+	}
+
+	// Verify old span is gone, new span remains
+	spans, _, err := st.QueryByKey(ctx, "trace_id", "000102030405060708090a0b0c0d0e0f", 1000)
+	if err != nil {
+		t.Fatalf("QueryByKey: %v", err)
+	}
+	if len(spans) != 0 {
+		t.Errorf("expected old span to be deleted, got %d", len(spans))
+	}
+
+	spans, _, err = st.QueryByKey(ctx, "trace_id", "010102030405060708090a0b0c0d0e0f", 1000)
+	if err != nil {
+		t.Fatalf("QueryByKey: %v", err)
+	}
+	if len(spans) != 1 {
+		t.Errorf("expected new span to remain, got %d", len(spans))
 	}
 }

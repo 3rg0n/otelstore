@@ -6,6 +6,36 @@ semantic versioning once released.
 
 ## [Unreleased]
 
+### Added — 2026-07-17 (unified all-signal ingest, auth, retention, docs)
+
+- **Metrics signal** — otelstore now handles all three OTLP signals. New
+  `metrics` table (generic attributes JSON, `run_id`/`job_id` promoted),
+  `store.InsertMetrics` (Gauge + Sum data points), `store.QueryMetrics`,
+  HTTP `POST /v1/metrics` ingest, and `GET /v1/metrics?name=` query.
+- **gRPC OTLP ingest on `:4317`** (`internal/grpcreceiver`) — Trace + Logs +
+  Metrics services, the OTel-default transport. Makes "point Claude Code's OTel
+  at it" work out of the box (Claude Code defaults to gRPC).
+- **Optional bearer-token auth** (`internal/auth`) — `-auth-token` /
+  `OTELSTORE_AUTH_TOKEN`; when set, every HTTP and gRPC endpoint requires
+  `Authorization: Bearer <token>`. Exact `Bearer ` prefix check +
+  constant-time compare (`crypto/subtle`), shared by the HTTP middleware and
+  gRPC interceptors.
+- **Retention** — `store.DeleteBefore` and a `-retention` duration flag; a
+  background sweeper prunes spans/logs/metrics older than the window so a
+  long-running local daemon stays bounded.
+- **Docs & release** — README (incl. "Use with Claude Code"), `docs/usage.md`
+  (OTLP endpoint matrix, query reference), Apache-2.0 `LICENSE`, and
+  `scripts/build-release.sh` (CGO-free binaries for macOS/Linux/Windows).
+
+### Security
+
+- Auth requires the exact `Bearer ` scheme (rejects same-length non-Bearer
+  headers) and compares tokens in constant time. Gate clean across the new
+  packages: gosec 0 issues, staticcheck/govulncheck/go vet, `CGO_ENABLED=0`
+  build. Verified end-to-end against the compiled binary with a real gRPC
+  client (metric + trace ingested and queried back; wrong/!Bearer token
+  rejected).
+
 ### Added — 2026-07-17 (MCP query server)
 
 - **MCP query server** (`internal/mcpserver`) — exposes the store as Model

@@ -64,6 +64,29 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/QueryResult" }
         "400": { description: No filter, or more than one filter, supplied. }
+  /v1/metrics:
+    get:
+      summary: Get metrics by name.
+      description: >
+        Query metrics by name, ordered by timestamp. Returns the metric data
+        points with their values and attributes.
+      operationId: getMetrics
+      parameters:
+        - name: name
+          in: query
+          required: true
+          schema: { type: string }
+          description: Metric name to query.
+        - name: limit
+          in: query
+          schema: { type: integer, default: 1000, maximum: 10000 }
+      responses:
+        "200":
+          description: Metrics matching the name.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MetricsResult" }
+        "400": { description: Missing name parameter. }
 components:
   schemas:
     Span:
@@ -119,3 +142,22 @@ components:
         logs:
           type: array
           items: { $ref: "#/components/schemas/LogRecord" }
+    Metric:
+      type: object
+      required: [name, value_double, time_ns]
+      properties:
+        name: { type: string, description: "Metric name" }
+        value_double: { type: number, format: double, description: "Metric value (double or converted int)" }
+        time_ns: { type: integer, format: int64, description: "Timestamp in nanoseconds" }
+        run_id: { type: string }
+        job_id: { type: string }
+        attributes:
+          type: object
+          additionalProperties: true
+          description: "Metric attributes as generic JSON"
+    MetricsResult:
+      type: object
+      properties:
+        metrics:
+          type: array
+          items: { $ref: "#/components/schemas/Metric" }

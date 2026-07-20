@@ -19,6 +19,7 @@ func NewHandler(s *store.Store) *Handler {
 	h := &Handler{store: s, mux: http.NewServeMux()}
 	h.mux.HandleFunc("/v1/traces/", h.handleGetTrace)
 	h.mux.HandleFunc("/v1/query", h.handleQuery)
+	h.mux.HandleFunc("/v1/metrics", h.handleGetMetrics)
 	return h
 }
 
@@ -134,6 +135,53 @@ func (h *Handler) handleQuery(w http.ResponseWriter, r *http.Request) {
 	result := map[string]interface{}{
 		"spans": spans,
 		"logs":  logs,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(result); err != nil {
+		// Encoding failed; client may have disconnected
+		_ = err
+	}
+}
+
+// handleGetMetrics handles GET /v1/metrics?name=&limit=
+func (h *Handler) handleGetMetrics(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse query parameters
+	q := r.URL.Query()
+	name := q.Get("name")
+	if name == "" {
+		http.Error(w, "name parameter required", http.StatusBadRequest)
+		return
+	}
+
+	// Parse limit
+	limit := 1000
+	if limitStr := q.Get("limit"); limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil {
+			if l > 0 && l <= 10000 {
+				limit = l
+			}
+		}
+	}
+
+	metrics, err := h.store.QueryMetrics(r.Context(), name, limit)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Ensure array is not null when empty
+	if metrics == nil {
+		metrics = []map[string]interface{}{}
+	}
+
+	result := map[string]interface{}{
+		"metrics": metrics,
 	}
 
 	w.Header().Set("Content-Type", "application/json")

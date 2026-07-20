@@ -8,6 +8,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	collectorlogsv1 "go.opentelemetry.io/proto/otlp/collector/logs/v1"
+	collectormetricsv1 "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	collectortracesv1 "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 )
 
@@ -28,6 +29,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleTraces(w, r)
 	case "/v1/logs":
 		h.handleLogs(w, r)
+	case "/v1/metrics":
+		h.handleMetrics(w, r)
 	default:
 		http.NotFound(w, r)
 	}
@@ -119,6 +122,56 @@ func (h *Handler) handleLogs(w http.ResponseWriter, r *http.Request) {
 
 	// Return empty ExportLogsServiceResponse
 	resp := &collectorlogsv1.ExportLogsServiceResponse{}
+	respBytes, err := proto.Marshal(resp)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/x-protobuf")
+	w.WriteHeader(http.StatusOK)
+	if _, err := w.Write(respBytes); err != nil {
+		// Response write failed; log and continue
+		_ = err
+	}
+}
+
+// handleMetrics handles POST /v1/metrics
+func (h *Handler) handleMetrics(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "read request body", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	var req collectormetricsv1.ExportMetricsServiceRequest
+	if err := proto.Unmarshal(body, &req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		if _, err := w.Write([]byte("unmarshal error")); err != nil {
+			// Response write failed; log and continue
+			_ = err
+		}
+		return
+	}
+
+	// Walk ResourceMetrics -> ScopeMetrics -> Metric
+	for _, rm := range req.ResourceMetrics {
+		for _, sm := range rm.ScopeMetrics {
+			if err := h.store.InsertMetrics(r.Context(), sm.Metrics, rm.Resource, sm.Scope); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+	}
+
+	// Return empty ExportMetricsServiceResponse
+	resp := &collectormetricsv1.ExportMetricsServiceResponse{}
 	respBytes, err := proto.Marshal(resp)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

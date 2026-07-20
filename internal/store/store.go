@@ -10,6 +10,7 @@ import (
 	_ "modernc.org/sqlite"
 
 	otlpcommonv1 "go.opentelemetry.io/proto/otlp/common/v1"
+	otlpmetricsv1 "go.opentelemetry.io/proto/otlp/metrics/v1"
 	otplogsv1 "go.opentelemetry.io/proto/otlp/logs/v1"
 	otlpresourcev1 "go.opentelemetry.io/proto/otlp/resource/v1"
 	otlptracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
@@ -81,12 +82,30 @@ func (s *Store) InitSchema(ctx context.Context) error {
 	CREATE INDEX IF NOT EXISTS idx_logs_trace_id ON logs(trace_id);
 	`
 
+	metricsSchema := `
+	CREATE TABLE IF NOT EXISTS metrics (
+		name TEXT NOT NULL,
+		value_double REAL NOT NULL,
+		time_ns INTEGER NOT NULL,
+		run_id TEXT,
+		job_id TEXT,
+		attributes TEXT
+	);
+	CREATE INDEX IF NOT EXISTS idx_metrics_name ON metrics(name);
+	CREATE INDEX IF NOT EXISTS idx_metrics_run_id ON metrics(run_id);
+	CREATE INDEX IF NOT EXISTS idx_metrics_job_id ON metrics(job_id);
+	`
+
 	if _, err := s.db.ExecContext(ctx, spansSchema); err != nil {
 		return fmt.Errorf("failed to create spans table: %w", err)
 	}
 
 	if _, err := s.db.ExecContext(ctx, logsSchema); err != nil {
 		return fmt.Errorf("failed to create logs table: %w", err)
+	}
+
+	if _, err := s.db.ExecContext(ctx, metricsSchema); err != nil {
+		return fmt.Errorf("failed to create metrics table: %w", err)
 	}
 
 	return nil
@@ -323,6 +342,97 @@ func (s *Store) InsertLogs(
 	return nil
 }
 
+// InsertMetrics inserts OTLP metrics into the store.
+func (s *Store) InsertMetrics(
+	ctx context.Context,
+	metrics []*otlpmetricsv1.Metric,
+	resource *otlpresourcev1.Resource,
+	scope *otlpcommonv1.InstrumentationScope,
+) error {
+	if len(metrics) == 0 {
+		return nil
+	}
+
+	stmt, err := s.db.PrepareContext(ctx, `
+		INSERT INTO metrics (
+			name, value_double, time_ns, run_id, job_id, attributes
+		) VALUES (?, ?, ?, ?, ?, ?)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, metric := range metrics {
+		metricName := metric.GetName()
+
+		// Handle Gauge
+		if gauge := metric.GetGauge(); gauge != nil {
+			for _, dp := range gauge.GetDataPoints() {
+				valueDouble := extractDoubleValue(dp)
+				attrs := mergeAttributes(resource, scope, dp.GetAttributes())
+				runID, jobID := extractMetadata(attrs)
+
+				attrsJSON, err := json.Marshal(attrs)
+				if err != nil {
+					return fmt.Errorf("failed to marshal attributes: %w", err)
+				}
+
+				_, err = stmt.ExecContext(ctx,
+					metricName, valueDouble, dp.GetTimeUnixNano(),
+					runID, jobID, string(attrsJSON),
+				)
+				if err != nil {
+					return fmt.Errorf("failed to insert metric: %w", err)
+				}
+			}
+			continue
+		}
+
+		// Handle Sum
+		if sum := metric.GetSum(); sum != nil {
+			for _, dp := range sum.GetDataPoints() {
+				valueDouble := extractDoubleValue(dp)
+				attrs := mergeAttributes(resource, scope, dp.GetAttributes())
+				runID, jobID := extractMetadata(attrs)
+
+				attrsJSON, err := json.Marshal(attrs)
+				if err != nil {
+					return fmt.Errorf("failed to marshal attributes: %w", err)
+				}
+
+				_, err = stmt.ExecContext(ctx,
+					metricName, valueDouble, dp.GetTimeUnixNano(),
+					runID, jobID, string(attrsJSON),
+				)
+				if err != nil {
+					return fmt.Errorf("failed to insert metric: %w", err)
+				}
+			}
+			continue
+		}
+
+		// Skip unsupported metric types (Histogram, Exponential Histogram, Summary)
+	}
+
+	return nil
+}
+
+// extractDoubleValue extracts a double value from a NumberDataPoint.
+// For double points, uses AsDouble(). For int points, converts to float64.
+func extractDoubleValue(dp *otlpmetricsv1.NumberDataPoint) float64 {
+	if dp == nil {
+		return 0.0
+	}
+	if doubleVal, ok := dp.Value.(*otlpmetricsv1.NumberDataPoint_AsDouble); ok {
+		return doubleVal.AsDouble
+	}
+	if intVal, ok := dp.Value.(*otlpmetricsv1.NumberDataPoint_AsInt); ok {
+		return float64(intVal.AsInt)
+	}
+	return 0.0
+}
+
 // QueryByKey queries spans and logs by a specific key.
 // key must be one of: trace_id, run_id, job_id
 func (s *Store) QueryByKey(
@@ -401,6 +511,29 @@ func (s *Store) GetTrace(
 	defer rows.Close()
 
 	return scanSpans(rows)
+}
+
+// QueryMetrics retrieves metrics by name, ordered by time_ns.
+func (s *Store) QueryMetrics(
+	ctx context.Context,
+	name string,
+	limit int,
+) (metrics []map[string]any, err error) {
+	if limit <= 0 {
+		limit = 1000
+	}
+	if limit > 10000 {
+		limit = 10000
+	}
+
+	query := "SELECT * FROM metrics WHERE name = ? ORDER BY time_ns LIMIT ?"
+	rows, err := s.db.QueryContext(ctx, query, name, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query metrics: %w", err)
+	}
+	defer rows.Close()
+
+	return scanMetrics(rows)
 }
 
 // scanSpans scans rows from a spans query into maps.
@@ -512,6 +645,57 @@ func scanLogs(rows *sql.Rows) ([]map[string]any, error) {
 	return results, nil
 }
 
+// scanMetrics scans rows from a metrics query into maps.
+func scanMetrics(rows *sql.Rows) ([]map[string]any, error) {
+	results := make([]map[string]any, 0)
+
+	cols, err := rows.Columns()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get columns: %w", err)
+	}
+
+	for rows.Next() {
+		values := make([]any, len(cols))
+		valuePtrs := make([]any, len(cols))
+		for i := range cols {
+			valuePtrs[i] = &values[i]
+		}
+
+		if err := rows.Scan(valuePtrs...); err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+
+		entry := make(map[string]any)
+		for i, col := range cols {
+			var v any
+			val := values[i]
+			b, ok := val.([]byte)
+			if ok {
+				v = string(b)
+			} else {
+				v = val
+			}
+			entry[col] = v
+		}
+
+		// Decode JSON attributes
+		if attrsStr, ok := entry["attributes"].(string); ok && attrsStr != "" {
+			var attrs map[string]any
+			if err := json.Unmarshal([]byte(attrsStr), &attrs); err == nil {
+				entry["attributes"] = attrs
+			}
+		}
+
+		results = append(results, entry)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows error: %w", err)
+	}
+
+	return results, nil
+}
+
 // ErrorSpans filters spans with error status (status_code == 2).
 func ErrorSpans(spans []map[string]any) []map[string]any {
 	errors := make([]map[string]any, 0)
@@ -523,6 +707,46 @@ func ErrorSpans(spans []map[string]any) []map[string]any {
 		}
 	}
 	return errors
+}
+
+// DeleteBefore deletes all spans, logs, and metrics before cutoffNs.
+func (s *Store) DeleteBefore(ctx context.Context, cutoffNs int64) (int64, error) {
+	var totalDeleted int64
+
+	// Delete spans
+	result, err := s.db.ExecContext(ctx, "DELETE FROM spans WHERE start_ns < ?", cutoffNs)
+	if err != nil {
+		return 0, fmt.Errorf("failed to delete spans: %w", err)
+	}
+	spansDeleted, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get rows affected for spans: %w", err)
+	}
+	totalDeleted += spansDeleted
+
+	// Delete logs
+	result, err = s.db.ExecContext(ctx, "DELETE FROM logs WHERE time_ns < ?", cutoffNs)
+	if err != nil {
+		return 0, fmt.Errorf("failed to delete logs: %w", err)
+	}
+	logsDeleted, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get rows affected for logs: %w", err)
+	}
+	totalDeleted += logsDeleted
+
+	// Delete metrics
+	result, err = s.db.ExecContext(ctx, "DELETE FROM metrics WHERE time_ns < ?", cutoffNs)
+	if err != nil {
+		return 0, fmt.Errorf("failed to delete metrics: %w", err)
+	}
+	metricsDeleted, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get rows affected for metrics: %w", err)
+	}
+	totalDeleted += metricsDeleted
+
+	return totalDeleted, nil
 }
 
 // Close closes the database connection.
