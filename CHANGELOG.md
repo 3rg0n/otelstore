@@ -6,6 +6,24 @@ semantic versioning once released.
 
 ## [Unreleased]
 
+### Added — 2026-07-21 (e2e harness, CI, landing page)
+
+- **End-to-end test harness** (`test/e2e`, `-tags e2e`) — spawns the compiled
+  binary as a subprocess on ephemeral ports and drives it over real sockets:
+  OTLP traces + metrics over gRPC, logs over HTTP, all with bearer auth, then
+  queries each back over REST. Asserts the error span surfaces (status_code=2),
+  the metric value round-trips, auth rejects unauthenticated requests, and data
+  survives a process restart (real on-disk persistence). Verified on Windows and
+  Linux (WSL Ubuntu 24.04). An untagged `doc.go` keeps `go test ./...` green.
+- **CI** (`.github/workflows/ci.yml`) — build (CGO-free) · vet · test, a
+  dedicated e2e job (`-tags e2e`), and a security job (gosec/staticcheck/
+  govulncheck) on every push and PR. Actions pinned by commit SHA.
+- **Release** (`.github/workflows/release.yml`) — on a `v*` tag, cross-compiles
+  via `scripts/build-release.sh` and publishes binaries + checksums as a GitHub
+  Release.
+- **Landing page** (`docs/index.html` + `.nojekyll`) — self-contained static
+  page for GitHub Pages.
+
 ### Added — 2026-07-17 (unified all-signal ingest, auth, retention, docs)
 
 - **Metrics signal** — otelstore now handles all three OTLP signals. New

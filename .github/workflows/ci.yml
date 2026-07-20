@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: build · vet · test
+    runs-on: ubuntu-latest
+    steps:
+      # actions/checkout v7.0.1 — pinned by SHA (supply-chain)
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      # actions/setup-go v7.0.0 — pinned by SHA
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: '1.26.x'
+
+      - name: Build (CGO-free, all packages)
+        run: CGO_ENABLED=0 go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./... -count=1
+
+  e2e:
+    name: e2e (compiled binary, real sockets)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: '1.26.x'
+
+      - name: End-to-end (spawns otelstore, drives OTLP over the wire)
+        run: go test -tags e2e ./test/e2e/ -v -count=1
+
+  security:
+    name: gosec · staticcheck · govulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: '1.26.x'
+
+      - name: Install scanners
+        run: |
+          go install github.com/securego/gosec/v2/cmd/gosec@latest
+          go install honnef.co/go/tools/cmd/staticcheck@latest
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: gosec (fail on any finding)
+        run: gosec ./...
+
+      - name: staticcheck
+        run: staticcheck ./...
+
+      - name: govulncheck
+        run: govulncheck ./...

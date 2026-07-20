@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>otelstore — one binary, the whole local OpenTelemetry stack</title>
+<meta name="description" content="Send OTLP traces, logs, and metrics to one process and query them back over REST or MCP. No collector, no Loki, no Tempo, no Prometheus — just ./otelstore. Pure Go, single static binary.">
+<meta property="og:title" content="otelstore">
+<meta property="og:description" content="One binary. The whole local OpenTelemetry stack.">
+<meta property="og:type" content="website">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0B0E14; --bg2:#0F131B; --surface:#141A24; --surface2:#1A2130;
+    --line:#232B39; --line2:#2E3849;
+    --text:#E7ECF3; --muted:#8A94A6; --faint:#586074;
+    --teal:#35D6C0; --teal-dim:rgba(53,214,192,.12); --teal-line:rgba(53,214,192,.32);
+    --trace:#F3B24B; --metric:#46B7F0; --log:#B08CFF; --minus:#E5677A;
+    --maxw:1080px;
+    --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+    --sans:"IBM Plex Sans",system-ui,-apple-system,sans-serif;
+    --disp:"Space Grotesk",var(--sans);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    background:var(--bg); color:var(--text); font-family:var(--sans);
+    line-height:1.6; -webkit-font-smoothing:antialiased;
+    background-image:
+      radial-gradient(70rem 40rem at 72% -10%, rgba(53,214,192,.07), transparent 60%),
+      radial-gradient(50rem 30rem at 5% 8%, rgba(176,140,255,.05), transparent 55%);
+    background-repeat:no-repeat;
+  }
+  a{color:inherit;text-decoration:none}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 24px}
+  .mono{font-family:var(--mono)}
+
+  /* ---- eyebrow ---- */
+  .eyebrow{
+    font-family:var(--mono); font-size:.72rem; font-weight:500;
+    letter-spacing:.24em; text-transform:uppercase; color:var(--muted);
+  }
+  .eyebrow .tick{color:var(--teal)}
+
+  /* ---- top bar ---- */
+  .topbar{
+    position:sticky; top:0; z-index:50;
+    backdrop-filter:blur(10px); background:rgba(11,14,20,.72);
+    border-bottom:1px solid var(--line);
+  }
+  .topbar .wrap{display:flex; align-items:center; justify-content:space-between; height:60px}
+  .brand{display:flex; align-items:center; gap:10px; font-family:var(--mono); font-weight:600; letter-spacing:-.01em}
+  .sigdots{display:inline-flex; gap:3px}
+  .sigdots i{width:7px;height:7px;border-radius:50%;display:block}
+  .sigdots i:nth-child(1){background:var(--trace)}
+  .sigdots i:nth-child(2){background:var(--metric)}
+  .sigdots i:nth-child(3){background:var(--log)}
+  .navlinks{display:flex; align-items:center; gap:22px; font-family:var(--mono); font-size:.82rem}
+  .navlinks a{color:var(--muted); transition:color .15s}
+  .navlinks a:hover{color:var(--text)}
+  .navlinks .ghlink{color:var(--text)}
+
+  /* ---- hero ---- */
+  .hero{padding:88px 0 56px}
+  .hero .grid{display:grid; grid-template-columns:1.05fr .95fr; gap:56px; align-items:center}
+  h1{
+    font-family:var(--disp); font-weight:600; font-size:clamp(2.4rem,5.4vw,4.3rem);
+    line-height:1.02; letter-spacing:-.025em; margin:20px 0 0;
+  }
+  h1 .em{color:var(--teal)}
+  .lede{color:var(--muted); font-size:1.08rem; max-width:38ch; margin:22px 0 0}
+  .lede code{font-family:var(--mono); font-size:.92em; color:var(--text); background:var(--surface); padding:1px 6px; border-radius:5px; border:1px solid var(--line)}
+  .cta-row{display:flex; flex-wrap:wrap; gap:12px; margin-top:30px}
+  .btn{
+    font-family:var(--mono); font-size:.86rem; font-weight:500;
+    display:inline-flex; align-items:center; gap:9px; padding:11px 17px; border-radius:9px;
+    border:1px solid var(--line2); color:var(--text); background:var(--surface);
+    cursor:pointer; transition:border-color .15s, background .15s, transform .05s;
+  }
+  .btn:hover{border-color:var(--teal-line); background:var(--surface2)}
+  .btn:active{transform:translateY(1px)}
+  .btn.primary{background:var(--teal-dim); border-color:var(--teal-line); color:var(--teal)}
+  .btn.primary:hover{background:rgba(53,214,192,.18)}
+  .btn svg{width:15px;height:15px}
+
+  .signals{display:flex; align-items:center; gap:18px; margin-top:30px; font-family:var(--mono); font-size:.78rem; color:var(--faint); flex-wrap:wrap}
+  .sig{display:inline-flex; align-items:center; gap:7px}
+  .sig b{width:8px;height:8px;border-radius:50%;display:inline-block}
+  .sig.t b{background:var(--trace)} .sig.m b{background:var(--metric)} .sig.l b{background:var(--log)}
+  .signals .arrow{color:var(--faint)}
+  .signals .to{color:var(--teal)}
+
+  /* ---- terminal / diff signature ---- */
+  .term{
+    background:linear-gradient(180deg,var(--bg2),#0C1017);
+    border:1px solid var(--line2); border-radius:13px; overflow:hidden;
+    box-shadow:0 24px 60px -30px rgba(0,0,0,.8), 0 0 0 1px rgba(255,255,255,.01) inset;
+  }
+  .term-bar{display:flex; align-items:center; gap:8px; padding:12px 15px; border-bottom:1px solid var(--line); background:rgba(255,255,255,.015)}
+  .term-bar .dot{width:11px;height:11px;border-radius:50%;background:var(--line2)}
+  .term-title{margin-left:8px; font-family:var(--mono); font-size:.74rem; color:var(--faint)}
+  .term-body{padding:18px 18px 20px; font-family:var(--mono); font-size:.9rem; line-height:1.85}
+  .cmt{color:var(--faint)}
+  .diff-line{display:block; white-space:pre; border-radius:5px; padding:0 8px; margin:0 -8px}
+  .diff-line .sign{display:inline-block; width:1.2em; font-weight:600}
+  .dl-minus{color:#C98B95}
+  .dl-minus .sign{color:var(--minus)}
+  .dl-minus .strike{position:relative}
+  .dl-plus{color:var(--teal); background:var(--teal-dim); box-shadow:inset 2px 0 0 var(--teal)}
+  .dl-plus .sign{color:var(--teal)}
+  .dl-note{color:var(--faint); font-size:.82rem; padding-top:6px}
+
+  /* load animation */
+  .anim .diff-line{opacity:0; transform:translateY(4px)}
+  .anim .revealed{opacity:1; transform:none; transition:opacity .34s ease, transform .34s ease}
+  .anim .dl-minus.done .strike::after{
+    content:""; position:absolute; left:0; top:52%; height:1px; width:100%;
+    background:var(--minus); transform:scaleX(1); transform-origin:left; animation:strike .3s ease forwards;
+  }
+  @keyframes strike{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+
+  /* ---- section scaffolding ---- */
+  .band{padding:64px 0; border-top:1px solid var(--line)}
+  .band-head{display:flex; align-items:baseline; gap:16px; margin-bottom:26px; flex-wrap:wrap}
+  .band-head h2{font-family:var(--disp); font-weight:600; font-size:1.65rem; letter-spacing:-.02em}
+  .band-head p{color:var(--muted); font-size:.98rem}
+
+  /* code block */
+  .code{
+    background:var(--bg2); border:1px solid var(--line); border-radius:11px;
+    font-family:var(--mono); font-size:.88rem; position:relative;
+  }
+  .code-head{display:flex; justify-content:space-between; align-items:center; padding:9px 14px; border-bottom:1px solid var(--line); color:var(--faint); font-size:.74rem}
+  .copy{font-family:var(--mono); font-size:.72rem; color:var(--muted); background:transparent; border:1px solid var(--line2); border-radius:6px; padding:4px 9px; cursor:pointer; transition:color .15s,border-color .15s}
+  .copy:hover{color:var(--teal); border-color:var(--teal-line)}
+  .code pre{padding:16px 16px; overflow-x:auto; line-height:1.75}
+  .code .c-cmt{color:var(--faint)}
+  .code .c-fl{color:var(--metric)}
+  .code .c-str{color:var(--trace)}
+  .code .c-kw{color:var(--log)}
+
+  /* ports table */
+  .ports{width:100%; border-collapse:collapse; font-family:var(--mono); font-size:.9rem}
+  .ports th{text-align:left; font-weight:500; color:var(--faint); font-size:.72rem; letter-spacing:.14em; text-transform:uppercase; padding:0 14px 12px}
+  .ports td{padding:14px; border-top:1px solid var(--line)}
+  .ports tr:hover td{background:var(--surface)}
+  .port-num{color:var(--teal); font-weight:600}
+  .tag{display:inline-block; font-size:.72rem; padding:2px 8px; border-radius:20px; border:1px solid var(--line2); color:var(--muted)}
+
+  /* features */
+  .feat{display:grid; grid-template-columns:repeat(4,1fr); gap:16px}
+  .card{background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:20px; transition:border-color .15s, transform .15s}
+  .card:hover{border-color:var(--line2); transform:translateY(-2px)}
+  .card .k{font-family:var(--mono); font-size:.72rem; letter-spacing:.14em; text-transform:uppercase; color:var(--teal); margin-bottom:9px}
+  .card h3{font-family:var(--disp); font-weight:600; font-size:1.08rem; margin-bottom:6px}
+  .card p{color:var(--muted); font-size:.9rem; line-height:1.55}
+
+  /* footer */
+  footer{border-top:1px solid var(--line); padding:40px 0 60px; color:var(--faint); font-family:var(--mono); font-size:.82rem}
+  .foot-row{display:flex; justify-content:space-between; gap:20px; flex-wrap:wrap; align-items:center}
+  .foot-row a{color:var(--muted)} .foot-row a:hover{color:var(--text)}
+  .disclaim{margin-top:18px; color:var(--faint); font-size:.76rem; max-width:60ch; line-height:1.5}
+
+  /* reveal */
+  .reveal{opacity:0; transform:translateY(14px)}
+  .reveal.in{opacity:1; transform:none; transition:opacity .5s ease, transform .5s ease}
+
+  :focus-visible{outline:2px solid var(--teal); outline-offset:3px; border-radius:4px}
+
+  @media (max-width:860px){
+    .hero .grid{grid-template-columns:1fr; gap:36px}
+    .feat{grid-template-columns:repeat(2,1fr)}
+    .hero{padding:56px 0 40px}
+  }
+  @media (max-width:520px){
+    .feat{grid-template-columns:1fr}
+    .navlinks .hide-s{display:none}
+  }
+  @media (prefers-reduced-motion:reduce){
+    html{scroll-behavior:auto}
+    .anim .diff-line{opacity:1; transform:none}
+    .anim .dl-minus.done .strike::after{animation:none}
+    .reveal{opacity:1; transform:none}
+    *{transition:none!important}
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="wrap">
+    <a class="brand" href="#top" aria-label="otelstore home">
+      <span class="sigdots" aria-hidden="true"><i></i><i></i><i></i></span>
+      otelstore
+    </a>
+    <nav class="navlinks">
+      <a href="#quickstart" class="hide-s">quickstart</a>
+      <a href="#ports" class="hide-s">ports</a>
+      <a href="#claude" class="hide-s">claude code</a>
+      <a class="ghlink" href="https://github.com/3rg0n/otelstore">GitHub&nbsp;→</a>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+  <!-- HERO -->
+  <section class="hero">
+    <div class="wrap grid">
+      <div>
+        <p class="eyebrow"><span class="tick">▪</span> Open source · Single binary · OTLP-native</p>
+        <h1>One binary.<br>The whole local <span class="em">OpenTelemetry</span> stack.</h1>
+        <p class="lede">Send OTLP traces, logs, and metrics to one process and query them back over REST or MCP. No collector to configure, no Loki, no Tempo, no Prometheus — just <code>./otelstore</code>.</p>
+        <div class="cta-row">
+          <button class="btn primary" id="cta-copy" data-copy="go install github.com/3rg0n/otelstore/cmd/otelstore@latest">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+            <span id="cta-label">go install …/cmd/otelstore@latest</span>
+          </button>
+          <a class="btn" href="https://github.com/3rg0n/otelstore">View on GitHub</a>
+        </div>
+        <div class="signals" aria-label="three signals, one endpoint">
+          <span class="sig t"><b></b>traces</span>
+          <span class="sig m"><b></b>metrics</span>
+          <span class="sig l"><b></b>logs</span>
+          <span class="arrow">──▶</span>
+          <span class="to">:4317</span>
+        </div>
+      </div>
+
+      <!-- SIGNATURE: your stack, as a diff -->
+      <div class="term anim" id="term" aria-label="Your observability stack, as a diff">
+        <div class="term-bar" aria-hidden="true">
+          <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+          <span class="term-title">~/stack · git diff</span>
+        </div>
+        <div class="term-body">
+          <span class="cmt diff-line" data-i="0"># your local observability stack</span>
+          <span class="diff-line dl-minus" data-i="1"><span class="sign">-</span><span class="strike">otel-collector      # routing</span></span>
+          <span class="diff-line dl-minus" data-i="2"><span class="sign">-</span><span class="strike">loki                # logs store</span></span>
+          <span class="diff-line dl-minus" data-i="3"><span class="sign">-</span><span class="strike">tempo               # traces store</span></span>
+          <span class="diff-line dl-minus" data-i="4"><span class="sign">-</span><span class="strike">prometheus          # metrics store</span></span>
+          <span class="diff-line dl-plus" data-i="5"><span class="sign">+</span>otelstore           # all four, one binary</span>
+          <span class="dl-note diff-line" data-i="6">point Grafana (or any tool) at it — otelstore is the pipe<br>and the store, not the UI.</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- QUICKSTART -->
+  <section class="band" id="quickstart">
+    <div class="wrap">
+      <div class="band-head">
+        <h2>Quickstart</h2>
+        <p>CGO not required — it compiles to one static binary.</p>
+      </div>
+      <div class="code">
+        <div class="code-head"><span>shell</span><button class="copy" data-copy="go build -o otelstore ./cmd/otelstore
+./otelstore -db-path ./telemetry.db">copy</button></div>
+<pre><span class="c-cmt"># build — one static binary, no dependencies</span>
+go build -o otelstore ./cmd/otelstore
+
+<span class="c-cmt"># run, persisting to a local file</span>
+./otelstore <span class="c-fl">-db-path</span> <span class="c-str">./telemetry.db</span>
+
+<span class="c-cmt"># now send OTLP to :4317 (gRPC) or :4318 (HTTP), query on :4319</span></pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- PORTS -->
+  <section class="band" id="ports">
+    <div class="wrap">
+      <div class="band-head">
+        <h2>Four ports, one process</h2>
+        <p>Ingest on two, query on two. Front with a reverse proxy for TLS.</p>
+      </div>
+      <table class="ports">
+        <thead><tr><th>Port</th><th>Role</th><th>Protocol</th></tr></thead>
+        <tbody>
+          <tr><td class="port-num">4317</td><td>OTLP ingest — traces · logs · metrics</td><td><span class="tag">gRPC</span></td></tr>
+          <tr><td class="port-num">4318</td><td>OTLP ingest — traces · logs · metrics</td><td><span class="tag">HTTP / protobuf</span></td></tr>
+          <tr><td class="port-num">4319</td><td>Query API</td><td><span class="tag">REST / JSON</span></td></tr>
+          <tr><td class="port-num">4320</td><td>Query for agents</td><td><span class="tag">MCP</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- CLAUDE CODE -->
+  <section class="band" id="claude">
+    <div class="wrap">
+      <div class="band-head">
+        <h2>Use with Claude Code</h2>
+        <p>Claude Code emits OTLP by default. Point it here and query what it reports.</p>
+      </div>
+      <div class="code">
+        <div class="code-head"><span>~/.bashrc · env</span><button class="copy" data-copy="export CLAUDE_CODE_ENABLE_TELEMETRY=1
+export OTEL_METRICS_EXPORTER=otlp
+export OTEL_LOGS_EXPORTER=otlp
+export OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317">copy</button></div>
+<pre><span class="c-kw">export</span> CLAUDE_CODE_ENABLE_TELEMETRY=<span class="c-str">1</span>
+<span class="c-kw">export</span> OTEL_METRICS_EXPORTER=<span class="c-str">otlp</span>
+<span class="c-kw">export</span> OTEL_LOGS_EXPORTER=<span class="c-str">otlp</span>
+<span class="c-kw">export</span> OTEL_EXPORTER_OTLP_PROTOCOL=<span class="c-str">grpc</span>
+<span class="c-kw">export</span> OTEL_EXPORTER_OTLP_ENDPOINT=<span class="c-str">http://localhost:4317</span></pre>
+      </div>
+      <div class="code" style="margin-top:14px">
+        <div class="code-head"><span>then query it</span><button class="copy" data-copy='curl "localhost:4319/v1/metrics?name=claude_code.cost.usage"'>copy</button></div>
+<pre>curl <span class="c-str">"localhost:4319/v1/metrics?name=claude_code.cost.usage"</span></pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- FEATURES -->
+  <section class="band">
+    <div class="wrap">
+      <div class="feat">
+        <div class="card reveal"><div class="k">Signals</div><h3>All three</h3><p>Traces, logs, and metrics land in one store — not three separate services.</p></div>
+        <div class="card reveal"><div class="k">Runtime</div><h3>Pure Go, zero deps</h3><p>One static binary. No CGO, no external database, no containers to orchestrate.</p></div>
+        <div class="card reveal"><div class="k">Query</div><h3>REST + MCP</h3><p>Curl it, or let an agent read its own telemetry over MCP to self-remediate.</p></div>
+        <div class="card reveal"><div class="k">Portable</div><h3>mac · linux · win</h3><p>Native builds for every desktop OS. Store to a single SQLite file.</p></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-row">
+      <span>otelstore · MIT licensed</span>
+      <span>
+        <a href="https://github.com/3rg0n/otelstore">github</a> ·
+        <a href="https://github.com/3rg0n/otelstore/blob/main/docs/usage.md">usage</a> ·
+        <a href="https://github.com/3rg0n/otelstore/blob/main/LICENSE">license</a>
+      </span>
+    </div>
+    <p class="disclaim">otelstore is an independent open-source project for local and single-machine use. It is not affiliated with or endorsed by the OpenTelemetry project, the CNCF, Grafana Labs, or Anthropic. "Claude Code" is referenced only for interoperability.</p>
+  </div>
+</footer>
+
+<script>
+(function(){
+  var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // copy buttons
+  function wireCopy(btn){
+    btn.addEventListener("click", function(){
+      var text = btn.getAttribute("data-copy");
+      navigator.clipboard && navigator.clipboard.writeText(text);
+      var label = btn.id === "cta-copy" ? document.getElementById("cta-label") : btn;
+      var prev = label.textContent;
+      label.textContent = "copied ✓";
+      setTimeout(function(){ label.textContent = prev; }, 1400);
+    });
+  }
+  document.querySelectorAll(".copy,#cta-copy").forEach(wireCopy);
+
+  // diff signature reveal
+  var lines = document.querySelectorAll("#term .diff-line");
+  if(reduce){
+    lines.forEach(function(l){ l.classList.add("revealed"); if(l.classList.contains("dl-minus")) l.classList.add("done"); });
+  } else {
+    lines.forEach(function(l){
+      var i = parseInt(l.getAttribute("data-i"),10);
+      setTimeout(function(){
+        l.classList.add("revealed");
+        if(l.classList.contains("dl-minus")) setTimeout(function(){ l.classList.add("done"); }, 180);
+      }, 220 + i*130);
+    });
+  }
+
+  // scroll reveals
+  if("IntersectionObserver" in window && !reduce){
+    var io = new IntersectionObserver(function(es){
+      es.forEach(function(e){ if(e.isIntersecting){ e.target.classList.add("in"); io.unobserve(e.target); } });
+    }, {threshold:.15});
+    document.querySelectorAll(".reveal").forEach(function(el){ io.observe(el); });
+  } else {
+    document.querySelectorAll(".reveal").forEach(function(el){ el.classList.add("in"); });
+  }
+})();
+</script>
+</body>
+</html>
