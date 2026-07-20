@@ -24,7 +24,7 @@ semantic versioning once released.
   background sweeper prunes spans/logs/metrics older than the window so a
   long-running local daemon stays bounded.
 - **Docs & release** — README (incl. "Use with Claude Code"), `docs/usage.md`
-  (OTLP endpoint matrix, query reference), Apache-2.0 `LICENSE`, and
+  (OTLP endpoint matrix, query reference), MIT `LICENSE`, and
   `scripts/build-release.sh` (CGO-free binaries for macOS/Linux/Windows).
 
 ### Security
