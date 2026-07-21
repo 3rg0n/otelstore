@@ -46,6 +46,7 @@ type instance struct {
 	grpcAddr  string
 	httpAddr  string
 	queryAddr string
+	mcpAddr   string
 	dbPath    string
 	logBuf    *bytes.Buffer
 }
@@ -114,17 +115,17 @@ func launch(t *testing.T, bin, dbPath string) *instance {
 		grpcAddr:  freePort(t),
 		httpAddr:  freePort(t),
 		queryAddr: freePort(t),
+		mcpAddr:   freePort(t),
 		dbPath:    dbPath,
 		logBuf:    &bytes.Buffer{},
 	}
-	mcpAddr := freePort(t)
 
 	inst.proc = exec.Command(bin,
 		"-db-path", dbPath,
 		"-grpc-port", inst.grpcAddr,
 		"-ingest-port", inst.httpAddr,
 		"-query-port", inst.queryAddr,
-		"-mcp-addr", mcpAddr,
+		"-mcp-addr", inst.mcpAddr,
 		"-auth-token", authToken,
 	)
 	inst.proc.Stdout = inst.logBuf

@@ -12,6 +12,10 @@ import (
 	collectortracesv1 "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 )
 
+// maxBodyBytes caps an OTLP HTTP ingest request body to bound memory per
+// request (defense against an unbounded POST exhausting the heap).
+const maxBodyBytes = 64 << 20 // 64 MiB
+
 // Handler handles OTLP HTTP ingest endpoints.
 type Handler struct {
 	store *store.Store
@@ -20,6 +24,14 @@ type Handler struct {
 // NewHandler creates a new OTLP HTTP handler.
 func NewHandler(s *store.Store) *Handler {
 	return &Handler{store: s}
+}
+
+// readBody reads the request body with a hard size cap. On overflow,
+// http.MaxBytesReader makes io.ReadAll return an error, which the caller maps to
+// 400.
+func readBody(w http.ResponseWriter, r *http.Request) ([]byte, error) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+	return io.ReadAll(r.Body)
 }
 
 // ServeHTTP routes requests to the appropriate handler.
@@ -43,7 +55,7 @@ func (h *Handler) handleTraces(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := io.ReadAll(r.Body)
+	body, err := readBody(w, r)
 	if err != nil {
 		http.Error(w, "read request body", http.StatusBadRequest)
 		return
@@ -93,7 +105,7 @@ func (h *Handler) handleLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := io.ReadAll(r.Body)
+	body, err := readBody(w, r)
 	if err != nil {
 		http.Error(w, "read request body", http.StatusBadRequest)
 		return
@@ -143,7 +155,7 @@ func (h *Handler) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := io.ReadAll(r.Body)
+	body, err := readBody(w, r)
 	if err != nil {
 		http.Error(w, "read request body", http.StatusBadRequest)
 		return

@@ -72,12 +72,18 @@ func main() {
 	queryHandler := query.NewHandler(s)
 	mcpSrv := mcpserver.NewServer(s)
 
-	// Apply auth middleware to ingest and query handlers if token is set
-	var ingestWithAuth, queryWithAuth http.Handler = ingestHandler, queryHandler
+	// Create the MCP handler up front so it too can be auth-wrapped.
+	mcpHandler := mcpserver.NewStreamableHTTPHandler(mcpSrv)
+
+	// Apply auth middleware to ALL HTTP handlers when a token is set — ingest,
+	// query, AND the MCP query endpoint. Missing MCP here previously let anyone
+	// reaching :4320 read all stored telemetry despite -auth-token.
+	var ingestWithAuth, queryWithAuth, mcpWithAuth http.Handler = ingestHandler, queryHandler, mcpHandler
 	if *authToken != "" {
 		authMW := auth.Middleware(*authToken)
 		ingestWithAuth = authMW(ingestHandler)
 		queryWithAuth = authMW(queryHandler)
+		mcpWithAuth = authMW(mcpHandler)
 	}
 
 	// Create servers with timeouts (prevent Slowloris attack)
@@ -101,10 +107,9 @@ func main() {
 		IdleTimeout:       60 * time.Second,
 	}
 
-	mcpHandler := mcpserver.NewStreamableHTTPHandler(mcpSrv)
 	mcpHTTPServer := &http.Server{
 		Addr:              *mcpAddr,
-		Handler:           mcpHandler,
+		Handler:           mcpWithAuth,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -190,7 +195,11 @@ func main() {
 	}()
 
 	go func() {
-		log.Printf("Starting MCP query server on %s", *mcpAddr)
+		authStr := "auth disabled"
+		if *authToken != "" {
+			authStr = "auth enabled"
+		}
+		log.Printf("Starting MCP query server on %s (%s)", *mcpAddr, authStr)
 		if err := mcpHTTPServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Printf("MCP server error: %v", err)
 		}

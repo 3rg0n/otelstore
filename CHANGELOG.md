@@ -6,6 +6,23 @@ semantic versioning once released.
 
 ## [Unreleased]
 
+### Security — 2026-07-21 (MAESTRO threat model + fixes)
+
+- **Critical: authenticated the MCP query server.** The MCP endpoint (:4320)
+  was not behind the auth middleware, so anyone reaching it could read all
+  stored telemetry via `query_job`/`query_run`/`get_trace` even when
+  `-auth-token` was set. It is now auth-wrapped like ingest/query; an e2e
+  regression test asserts an unauthenticated MCP request gets 401.
+- **DoS bounds:** `GetTrace` now applies a `LIMIT` (10000); HTTP ingest caps
+  request bodies via `http.MaxBytesReader` (64 MiB); gRPC sets
+  `MaxRecvMsgSize` (64 MiB).
+- **Supply chain:** CI installs gosec/staticcheck/govulncheck at pinned
+  versions instead of `@latest`.
+- MCP startup log now reports auth status.
+- Full threat model written to `THREAT_MODEL.md`. Remaining lower-severity
+  findings (audit logging, non-loopback bind warning, token-file, release.yml
+  scoping, optional attribute redaction, SBOM/Dependabot) tracked as backlog.
+
 ### Added — 2026-07-21 (event queries, health probes, size retention)
 
 - **Query logs/events** — `GET /v1/logs?event_name=&min_severity=`. OTLP events

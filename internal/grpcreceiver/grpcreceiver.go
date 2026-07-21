@@ -130,10 +130,14 @@ func checkAuth(ctx context.Context, authToken string) error {
 	return nil
 }
 
+// maxRecvMsgBytes caps a single gRPC OTLP message to bound per-message memory.
+const maxRecvMsgBytes = 64 << 20 // 64 MiB
+
 // NewGRPCServer creates and registers a gRPC server with all OTLP services.
 func NewGRPCServer(s *store.Store, authToken string) *grpc.Server {
 	grpcSrv := grpc.NewServer(
 		grpc.UnaryInterceptor(makeAuthInterceptor(authToken)),
+		grpc.MaxRecvMsgSize(maxRecvMsgBytes),
 	)
 	collectortracesv1.RegisterTraceServiceServer(grpcSrv, NewTraceServer(s, authToken))
 	collectorlogsv1.RegisterLogsServiceServer(grpcSrv, NewLogsServer(s, authToken))

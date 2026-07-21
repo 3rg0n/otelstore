@@ -544,3 +544,43 @@ func TestEnforceMaxSizeEvictsOldest(t *testing.T) {
 		t.Errorf("EnforceMaxSize(0) = (%d,%v), want (0,nil)", n, err)
 	}
 }
+
+func TestGetTraceIsBounded(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer st.Close()
+	if err := st.InitSchema(ctx); err != nil {
+		t.Fatalf("InitSchema: %v", err)
+	}
+
+	// GetTrace must apply a LIMIT (maxTraceSpans) so an unbounded trace can't
+	// exhaust memory via the unauthenticated-reachable MCP get_trace path.
+	// Insert more than the cap and confirm the result is capped.
+	traceID := []byte{0xAB, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
+	const n = maxTraceSpans + 50
+	spans := make([]*otlptracev1.Span, 0, n)
+	for i := 0; i < n; i++ {
+		sid := []byte{byte(i), byte(i >> 8), byte(i >> 16), 0, 0, 0, 0, 1}
+		spans = append(spans, &otlptracev1.Span{
+			TraceId:           traceID,
+			SpanId:            sid,
+			Name:              "s",
+			StartTimeUnixNano: uint64(i + 1),
+			EndTimeUnixNano:   uint64(i + 2),
+		})
+	}
+	if err := st.InsertSpans(ctx, spans, nil, nil); err != nil {
+		t.Fatalf("InsertSpans: %v", err)
+	}
+
+	got, err := st.GetTrace(ctx, "ab0102030405060708090a0b0c0d0e0f")
+	if err != nil {
+		t.Fatalf("GetTrace: %v", err)
+	}
+	if len(got) != maxTraceSpans {
+		t.Fatalf("GetTrace returned %d spans, want cap of %d", len(got), maxTraceSpans)
+	}
+}

@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"bytes"
 	"fmt"
 	"net/http"
 	"testing"
@@ -124,6 +125,24 @@ func TestAuthEnforced(t *testing.T) {
 	// HTTP ingest must also reject a missing token.
 	if code, _ := sendLogHTTP(t, inst.httpAddr, "", "r", "j", "b"); code != http.StatusUnauthorized {
 		t.Fatalf("no-token log ingest: got %d, want 401", code)
+	}
+
+	// The MCP query endpoint must ALSO require the token (threat-model finding:
+	// it previously bypassed auth, exposing all telemetry). An unauthenticated
+	// request must not get through to the tools.
+	mcpReq, err := http.NewRequest(http.MethodPost, "http://"+inst.mcpAddr,
+		bytes.NewReader([]byte(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)))
+	if err != nil {
+		t.Fatalf("build mcp request: %v", err)
+	}
+	mcpReq.Header.Set("Content-Type", "application/json")
+	mcpResp, err := http.DefaultClient.Do(mcpReq)
+	if err != nil {
+		t.Fatalf("mcp request: %v", err)
+	}
+	defer mcpResp.Body.Close()
+	if mcpResp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("no-token MCP request: got %d, want 401 (auth bypass regression)", mcpResp.StatusCode)
 	}
 }
 

@@ -557,13 +557,19 @@ func (s *Store) QueryByKey(
 	return spans, logs, nil
 }
 
-// GetTrace retrieves all spans for a given trace ID.
+// maxTraceSpans caps the number of spans GetTrace returns, bounding memory for
+// a single (possibly unauthenticated-reachable) trace lookup.
+const maxTraceSpans = 10000
+
+// GetTrace retrieves the spans for a given trace ID, ordered by start time and
+// capped at maxTraceSpans to prevent an unbounded result set from exhausting
+// memory.
 func (s *Store) GetTrace(
 	ctx context.Context,
 	traceID string,
 ) (spans []map[string]any, err error) {
-	query := "SELECT * FROM spans WHERE trace_id = ? ORDER BY start_ns"
-	rows, err := s.db.QueryContext(ctx, query, traceID)
+	query := "SELECT * FROM spans WHERE trace_id = ? ORDER BY start_ns LIMIT ?"
+	rows, err := s.db.QueryContext(ctx, query, traceID, maxTraceSpans)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query trace: %w", err)
 	}

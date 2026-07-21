@@ -52,10 +52,12 @@ jobs:
           go-version: '1.26.x'
 
       - name: Install scanners
+        # Pinned versions (not @latest) so a malicious release of a scanner
+        # can't be pulled into the security gate — supply-chain hygiene.
         run: |
-          go install github.com/securego/gosec/v2/cmd/gosec@latest
-          go install honnef.co/go/tools/cmd/staticcheck@latest
-          go install golang.org/x/vuln/cmd/govulncheck@latest
+          go install github.com/securego/gosec/v2/cmd/gosec@v2.28.0
+          go install honnef.co/go/tools/cmd/staticcheck@2026.1
+          go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
 
       - name: gosec (fail on any finding)
         run: gosec ./...
