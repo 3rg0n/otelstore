@@ -1,0 +1,24 @@
+internal/store/store.go
+  s_e235e14927312e::t_ef08a3b2d1f97b 227-236
+  s_e235e14927312e::t_a4714d2835e8bb 303-305
+  s_e235e14927312e::t_e227b3cd7e5ad8 377-379,394-400
+  s_e235e14927312e::t_3c3ea0faee6037 462-464
+  s_e235e14927312e::t_1d483b8bfaab36 41-57
+  s_e235e14927312e::t_16f442efe80357 320-326
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "cab664c39c4ae7e579aa6f8489988b3da7093a2c",
+  "prompts": {},
+  "sessions": {
+    "s_e235e14927312e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4ff4b505-745a-4f5b-8d6b-181ff86bb3fe",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "3rg0n <62959009+3rg0n@users.noreply.github.com>"
+    }
+  }
+}
