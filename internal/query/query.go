@@ -20,6 +20,9 @@ func NewHandler(s *store.Store) *Handler {
 	h.mux.HandleFunc("/v1/traces/", h.handleGetTrace)
 	h.mux.HandleFunc("/v1/query", h.handleQuery)
 	h.mux.HandleFunc("/v1/metrics", h.handleGetMetrics)
+	h.mux.HandleFunc("/v1/logs", h.handleGetLogs)
+	h.mux.HandleFunc("/healthz", h.handleHealthz)
+	h.mux.HandleFunc("/readyz", h.handleReadyz)
 	return h
 }
 
@@ -187,6 +190,75 @@ func (h *Handler) handleGetMetrics(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(result); err != nil {
 		// Encoding failed; client may have disconnected
+		_ = err
+	}
+}
+
+// handleGetLogs handles GET /v1/logs?event_name=&min_severity=&limit=
+// Both filters are optional: no event_name matches all events; min_severity=0
+// applies no floor. This is the events query path (OTLP events are logs with an
+// event.name).
+func (h *Handler) handleGetLogs(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	q := r.URL.Query()
+	eventName := q.Get("event_name")
+
+	minSeverity := 0
+	if sevStr := q.Get("min_severity"); sevStr != "" {
+		if sev, err := strconv.Atoi(sevStr); err == nil && sev > 0 {
+			minSeverity = sev
+		}
+	}
+
+	limit := 1000
+	if limitStr := q.Get("limit"); limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil {
+			if l > 0 && l <= 10000 {
+				limit = l
+			}
+		}
+	}
+
+	logs, err := h.store.QueryLogs(r.Context(), eventName, minSeverity, limit)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if logs == nil {
+		logs = []map[string]interface{}{}
+	}
+
+	result := map[string]interface{}{
+		"logs": logs,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(result); err != nil {
+		_ = err
+	}
+}
+
+// handleHealthz is a liveness probe: the process is up.
+func (h *Handler) handleHealthz(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	if _, err := w.Write([]byte("ok")); err != nil {
+		_ = err
+	}
+}
+
+// handleReadyz is a readiness probe: the store answers. Returns 503 if not.
+func (h *Handler) handleReadyz(w http.ResponseWriter, r *http.Request) {
+	if err := h.store.Ping(r.Context()); err != nil {
+		http.Error(w, "not ready", http.StatusServiceUnavailable)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	if _, err := w.Write([]byte("ready")); err != nil {
 		_ = err
 	}
 }

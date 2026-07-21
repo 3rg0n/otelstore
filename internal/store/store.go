@@ -92,11 +92,14 @@ func (s *Store) InitSchema(ctx context.Context) error {
 		body TEXT,
 		run_id TEXT,
 		job_id TEXT,
+		event_name TEXT,
 		attributes TEXT
 	);
 	CREATE INDEX IF NOT EXISTS idx_logs_run_id ON logs(run_id);
 	CREATE INDEX IF NOT EXISTS idx_logs_job_id ON logs(job_id);
 	CREATE INDEX IF NOT EXISTS idx_logs_trace_id ON logs(trace_id);
+	CREATE INDEX IF NOT EXISTS idx_logs_event_name ON logs(event_name);
+	CREATE INDEX IF NOT EXISTS idx_logs_time_ns ON logs(time_ns);
 	`
 
 	metricsSchema := `
@@ -326,8 +329,8 @@ func (s *Store) InsertLogs(
 	stmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO logs (
 			trace_id, span_id, time_ns, severity_number, severity_text,
-			body, run_id, job_id, attributes
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+			body, run_id, job_id, event_name, attributes
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
@@ -338,6 +341,15 @@ func (s *Store) InsertLogs(
 		// Merge attributes
 		attrs := mergeAttributes(resource, scope, log.Attributes)
 		runID, jobID := extractMetadata(attrs)
+
+		// In OpenTelemetry an "event" is a log record carrying an event.name.
+		// Promote it to a column so events are directly queryable by name.
+		eventName := ""
+		if v, ok := attrs["event.name"]; ok {
+			if s, ok := v.(string); ok {
+				eventName = s
+			}
+		}
 
 		// Hex-encode trace/span IDs
 		traceID := ""
@@ -367,7 +379,7 @@ func (s *Store) InsertLogs(
 		_, err = stmt.ExecContext(ctx,
 			traceID, spanID, log.TimeUnixNano,
 			log.SeverityNumber, log.SeverityText,
-			body, runID, jobID, string(attrsJSON),
+			body, runID, jobID, eventName, string(attrsJSON),
 		)
 		if err != nil {
 			return fmt.Errorf("failed to insert log: %w", err)
@@ -583,6 +595,48 @@ func (s *Store) QueryMetrics(
 	return scanMetrics(rows)
 }
 
+// QueryLogs retrieves log/event records, optionally filtered by event.name and a
+// minimum severity number, ordered by time. Both filters are optional: an empty
+// eventName matches all events; a minSeverity of 0 applies no severity floor.
+// (OTLP severity numbers: 1-4 trace, 5-8 debug, 9-12 info, 13-16 warn,
+// 17-20 error, 21-24 fatal.)
+func (s *Store) QueryLogs(
+	ctx context.Context,
+	eventName string,
+	minSeverity int,
+	limit int,
+) (logs []map[string]any, err error) {
+	if limit <= 0 {
+		limit = 1000
+	}
+	if limit > 10000 {
+		limit = 10000
+	}
+
+	// Assemble the WHERE clause from fixed fragments only — values are always
+	// bound as parameters, so no identifier is ever interpolated (gosec G201).
+	where := ""
+	args := []any{}
+	if eventName != "" {
+		where += " AND event_name = ?"
+		args = append(args, eventName)
+	}
+	if minSeverity > 0 {
+		where += " AND severity_number >= ?"
+		args = append(args, minSeverity)
+	}
+	args = append(args, limit)
+
+	query := "SELECT * FROM logs WHERE 1=1" + where + " ORDER BY time_ns LIMIT ?"
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query logs: %w", err)
+	}
+	defer rows.Close()
+
+	return scanLogs(rows)
+}
+
 // scanSpans scans rows from a spans query into maps.
 func scanSpans(rows *sql.Rows) ([]map[string]any, error) {
 	results := make([]map[string]any, 0)
@@ -794,6 +848,80 @@ func (s *Store) DeleteBefore(ctx context.Context, cutoffNs int64) (int64, error)
 	totalDeleted += metricsDeleted
 
 	return totalDeleted, nil
+}
+
+// Ping verifies the database connection is alive (used for readiness checks).
+func (s *Store) Ping(ctx context.Context) error {
+	return s.db.PingContext(ctx)
+}
+
+// DBSize returns the on-disk size of the database in bytes
+// (page_count * page_size).
+func (s *Store) DBSize(ctx context.Context) (int64, error) {
+	var pageCount, pageSize int64
+	if err := s.db.QueryRowContext(ctx, "PRAGMA page_count").Scan(&pageCount); err != nil {
+		return 0, fmt.Errorf("failed to read page_count: %w", err)
+	}
+	if err := s.db.QueryRowContext(ctx, "PRAGMA page_size").Scan(&pageSize); err != nil {
+		return 0, fmt.Errorf("failed to read page_size: %w", err)
+	}
+	return pageCount * pageSize, nil
+}
+
+// EnforceMaxSize evicts the oldest rows (FIFO by timestamp) across spans, logs,
+// and metrics until the database is under maxBytes, or until nothing is left to
+// delete. Returns the number of rows deleted. maxBytes <= 0 disables the guard.
+func (s *Store) EnforceMaxSize(ctx context.Context, maxBytes int64) (int64, error) {
+	if maxBytes <= 0 {
+		return 0, nil
+	}
+
+	const batch = 1000 // rows per table per pass — bounded work per iteration
+	var totalDeleted int64
+
+	for {
+		size, err := s.DBSize(ctx)
+		if err != nil {
+			return totalDeleted, err
+		}
+		if size <= maxBytes {
+			return totalDeleted, nil
+		}
+
+		// Delete the oldest batch from each table. Static queries — no
+		// identifier interpolation (gosec G201).
+		deletes := []struct{ table, tsCol string }{
+			{"spans", "start_ns"},
+			{"logs", "time_ns"},
+			{"metrics", "time_ns"},
+		}
+		var passDeleted int64
+		for _, d := range deletes {
+			var q string
+			switch d.table {
+			case "spans":
+				q = "DELETE FROM spans WHERE rowid IN (SELECT rowid FROM spans ORDER BY start_ns LIMIT ?)"
+			case "logs":
+				q = "DELETE FROM logs WHERE rowid IN (SELECT rowid FROM logs ORDER BY time_ns LIMIT ?)"
+			case "metrics":
+				q = "DELETE FROM metrics WHERE rowid IN (SELECT rowid FROM metrics ORDER BY time_ns LIMIT ?)"
+			}
+			res, err := s.db.ExecContext(ctx, q, batch)
+			if err != nil {
+				return totalDeleted, fmt.Errorf("failed to evict from %s: %w", d.table, err)
+			}
+			n, _ := res.RowsAffected()
+			passDeleted += n
+		}
+		totalDeleted += passDeleted
+
+		// Nothing left to delete but still over cap — checkpoint to reclaim WAL
+		// pages, then stop to avoid an infinite loop.
+		if passDeleted == 0 {
+			_, _ = s.db.ExecContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)")
+			return totalDeleted, nil
+		}
+	}
 }
 
 // Close closes the database connection.

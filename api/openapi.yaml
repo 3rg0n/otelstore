@@ -87,6 +87,52 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/MetricsResult" }
         "400": { description: Missing name parameter. }
+  /v1/logs:
+    get:
+      summary: Query logs/events by event.name and/or minimum severity.
+      description: >
+        In OpenTelemetry an "event" is a log record carrying an event.name.
+        Both filters are optional: no event_name matches all events; a
+        min_severity of 0 applies no floor. Ordered by time.
+      operationId: getLogs
+      parameters:
+        - name: event_name
+          in: query
+          schema: { type: string }
+          description: Event name to filter by (e.g. claude_code.api_error).
+        - name: min_severity
+          in: query
+          schema: { type: integer }
+          description: >
+            Minimum OTLP severity number (1-4 trace, 5-8 debug, 9-12 info,
+            13-16 warn, 17-20 error, 21-24 fatal).
+        - name: limit
+          in: query
+          schema: { type: integer, default: 1000, maximum: 10000 }
+      responses:
+        "200":
+          description: Matching log/event records.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  logs:
+                    type: array
+                    items: { $ref: "#/components/schemas/LogRecord" }
+  /healthz:
+    get:
+      summary: Liveness probe (never requires auth).
+      operationId: healthz
+      responses:
+        "200": { description: Process is up. }
+  /readyz:
+    get:
+      summary: Readiness probe — the store answers (never requires auth).
+      operationId: readyz
+      responses:
+        "200": { description: Ready. }
+        "503": { description: Store not reachable. }
 components:
   schemas:
     Span:
@@ -123,6 +169,7 @@ components:
         body: { type: string }
         run_id: { type: string }
         job_id: { type: string }
+        event_name: { type: string, description: "Promoted from the event.name attribute" }
         attributes:
           type: object
           additionalProperties: true

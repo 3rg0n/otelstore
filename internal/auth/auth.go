@@ -22,14 +22,21 @@ func TokenValid(authHeader, expected string) bool {
 	return subtle.ConstantTimeCompare([]byte(rest), []byte(expected)) == 1
 }
 
+// unauthenticatedPaths bypass bearer auth so external health-checkers (Traefik,
+// k8s, container runtimes) can probe without a token. These expose no telemetry.
+var unauthenticatedPaths = map[string]bool{
+	"/healthz": true,
+	"/readyz":  true,
+}
+
 // Middleware wraps an http.Handler with optional bearer token authentication.
 // If token is empty, requests pass through unchanged.
-// If token is set, requires header "Authorization: Bearer <token>".
+// If token is set, requires header "Authorization: Bearer <token>" — except for
+// the health/readiness probe paths, which are always open.
 func Middleware(authToken string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if authToken == "" {
-				// No auth required
+			if authToken == "" || unauthenticatedPaths[r.URL.Path] {
 				next.ServeHTTP(w, r)
 				return
 			}

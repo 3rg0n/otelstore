@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	otlpcommonv1 "go.opentelemetry.io/proto/otlp/common/v1"
+	otlplogsv1 "go.opentelemetry.io/proto/otlp/logs/v1"
 	otlpmetricsv1 "go.opentelemetry.io/proto/otlp/metrics/v1"
 	otlptracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
 )
@@ -421,5 +422,125 @@ func TestDeleteBefore(t *testing.T) {
 	}
 	if len(spans) != 1 {
 		t.Errorf("expected new span to remain, got %d", len(spans))
+	}
+}
+
+// helper: insert one log/event with an event.name + severity at a given time.
+func insertEvent(t *testing.T, st *Store, ctx context.Context, eventName string, severity uint32, timeNs uint64, jobID string) {
+	t.Helper()
+	rec := &otlplogsv1.LogRecord{
+		TimeUnixNano:   timeNs,
+		SeverityNumber: otlplogsv1.SeverityNumber(severity),
+		SeverityText:   "",
+		Body:           &otlpcommonv1.AnyValue{Value: &otlpcommonv1.AnyValue_StringValue{StringValue: "b"}},
+		Attributes: []*otlpcommonv1.KeyValue{
+			{Key: "event.name", Value: &otlpcommonv1.AnyValue{Value: &otlpcommonv1.AnyValue_StringValue{StringValue: eventName}}},
+			{Key: "job_id", Value: &otlpcommonv1.AnyValue{Value: &otlpcommonv1.AnyValue_StringValue{StringValue: jobID}}},
+		},
+	}
+	if err := st.InsertLogs(ctx, []*otlplogsv1.LogRecord{rec}, nil, nil); err != nil {
+		t.Fatalf("InsertLogs: %v", err)
+	}
+}
+
+func TestQueryLogsByEventNameAndSeverity(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer st.Close()
+	if err := st.InitSchema(ctx); err != nil {
+		t.Fatalf("InitSchema: %v", err)
+	}
+
+	insertEvent(t, st, ctx, "api_error", 17, 100, "J1")     // error severity
+	insertEvent(t, st, ctx, "user_prompt", 9, 200, "J1")    // info severity
+	insertEvent(t, st, ctx, "api_error", 17, 300, "J2")     // error, other job
+
+	// Filter by event.name only.
+	logs, err := st.QueryLogs(ctx, "api_error", 0, 1000)
+	if err != nil {
+		t.Fatalf("QueryLogs: %v", err)
+	}
+	if len(logs) != 2 {
+		t.Fatalf("event_name=api_error: expected 2, got %d", len(logs))
+	}
+	for _, l := range logs {
+		if l["event_name"] != "api_error" {
+			t.Errorf("expected event_name api_error, got %v", l["event_name"])
+		}
+	}
+
+	// Filter by min severity only (>=13 = warn and above): the two api_error (17).
+	logs, err = st.QueryLogs(ctx, "", 13, 1000)
+	if err != nil {
+		t.Fatalf("QueryLogs: %v", err)
+	}
+	if len(logs) != 2 {
+		t.Fatalf("min_severity=13: expected 2, got %d", len(logs))
+	}
+
+	// No filters: all three.
+	logs, err = st.QueryLogs(ctx, "", 0, 1000)
+	if err != nil {
+		t.Fatalf("QueryLogs: %v", err)
+	}
+	if len(logs) != 3 {
+		t.Fatalf("no filter: expected 3, got %d", len(logs))
+	}
+
+	// Combined: user_prompt at info is excluded by severity floor.
+	logs, err = st.QueryLogs(ctx, "user_prompt", 13, 1000)
+	if err != nil {
+		t.Fatalf("QueryLogs: %v", err)
+	}
+	if len(logs) != 0 {
+		t.Fatalf("user_prompt + min_severity=13: expected 0, got %d", len(logs))
+	}
+}
+
+func TestEnforceMaxSizeEvictsOldest(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	st, err := Open(dir + "/size.db")
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer st.Close()
+	if err := st.InitSchema(ctx); err != nil {
+		t.Fatalf("InitSchema: %v", err)
+	}
+
+	// Insert enough events to grow the DB past a small cap.
+	for i := 0; i < 5000; i++ {
+		insertEvent(t, st, ctx, "bulk", 9, uint64(i+1), "J1")
+	}
+	before, err := st.DBSize(ctx)
+	if err != nil {
+		t.Fatalf("DBSize: %v", err)
+	}
+
+	// Cap at half the current size; eviction must bring it under (or delete all).
+	cap := before / 2
+	deleted, err := st.EnforceMaxSize(ctx, cap)
+	if err != nil {
+		t.Fatalf("EnforceMaxSize: %v", err)
+	}
+	if deleted == 0 {
+		t.Fatalf("expected some rows evicted, got 0 (before=%d cap=%d)", before, cap)
+	}
+
+	after, err := st.DBSize(ctx)
+	if err != nil {
+		t.Fatalf("DBSize: %v", err)
+	}
+	if after > before {
+		t.Errorf("DB grew after eviction: before=%d after=%d", before, after)
+	}
+
+	// maxBytes<=0 is a no-op.
+	if n, err := st.EnforceMaxSize(ctx, 0); err != nil || n != 0 {
+		t.Errorf("EnforceMaxSize(0) = (%d,%v), want (0,nil)", n, err)
 	}
 }

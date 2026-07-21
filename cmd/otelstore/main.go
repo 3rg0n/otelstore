@@ -36,7 +36,8 @@ func main() {
 	queryPort := flag.String("query-port", "127.0.0.1:4319", "Address for query API server")
 	mcpAddr := flag.String("mcp-addr", "127.0.0.1:4320", "Address for MCP query server")
 	authToken := flag.String("auth-token", "", "Bearer token for authentication (if empty, auth disabled)")
-	retention := flag.Duration("retention", 0, "Data retention duration (e.g. 168h); 0 disables retention")
+	retention := flag.Duration("retention", 0, "Age-based retention: delete data older than this (e.g. 4320h = 180 days); 0 disables")
+	maxSize := flag.Int64("max-size", 0, "Size cap in bytes: evict oldest rows (FIFO) until the DB is under this; 0 disables")
 	flag.Parse()
 
 	if *showVersion {
@@ -110,24 +111,38 @@ func main() {
 		IdleTimeout:       60 * time.Second,
 	}
 
-	// Start retention sweeper if enabled
+	// Start retention sweeper if either age-based or size-based limit is set.
 	var stopRetention chan struct{}
-	if *retention > 0 {
+	if *retention > 0 || *maxSize > 0 {
 		stopRetention = make(chan struct{})
+		// Sweep cadence: for age retention, a fraction of the window (capped at
+		// 1h); default to 1m when only size is enforced.
+		interval := time.Minute
+		if *retention > 0 {
+			interval = minDuration(*retention/10, time.Hour)
+		}
 		go func() {
-			ticker := time.NewTicker(minDuration(*retention/10, time.Hour))
+			ticker := time.NewTicker(interval)
 			defer ticker.Stop()
 			for {
 				select {
 				case <-stopRetention:
 					return
 				case <-ticker.C:
-					cutoffNs := time.Now().UnixNano() - retention.Nanoseconds()
-					deleted, err := s.DeleteBefore(ctx, cutoffNs)
-					if err != nil {
-						log.Printf("Retention cleanup error: %v", err)
-					} else if deleted > 0 {
-						log.Printf("Retention cleanup: deleted %d rows", deleted)
+					if *retention > 0 {
+						cutoffNs := time.Now().UnixNano() - retention.Nanoseconds()
+						if deleted, err := s.DeleteBefore(ctx, cutoffNs); err != nil {
+							log.Printf("Retention (age) error: %v", err)
+						} else if deleted > 0 {
+							log.Printf("Retention (age): deleted %d rows", deleted)
+						}
+					}
+					if *maxSize > 0 {
+						if deleted, err := s.EnforceMaxSize(ctx, *maxSize); err != nil {
+							log.Printf("Retention (size) error: %v", err)
+						} else if deleted > 0 {
+							log.Printf("Retention (size): evicted %d rows", deleted)
+						}
 					}
 				}
 			}

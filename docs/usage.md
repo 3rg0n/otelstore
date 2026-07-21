@@ -77,6 +77,20 @@ All spans for a trace, ordered by start time:
 Metric data points by name, ordered by time:
 `{ "metrics": [ { "name", "value_double", "time_ns", "run_id", "job_id", "attributes" } ] }`.
 
+### `GET /v1/logs?event_name=<name>&min_severity=<n>`
+
+Log/event records, ordered by time. OTLP events are log records carrying an
+`event.name`, which otelstore promotes to a queryable field. Both params are
+optional — no `event_name` matches all events; `min_severity` of 0 applies no
+floor. Severity numbers: 1-4 trace, 5-8 debug, 9-12 info, 13-16 warn,
+17-20 error, 21-24 fatal. Response: `{ "logs": [...] }`.
+
+### `GET /healthz`, `GET /readyz`
+
+Liveness and readiness probes. `/readyz` returns 503 if the store is
+unreachable. Both always bypass auth so external health-checkers can probe
+without a token.
+
 ## MCP tools (`:4320`)
 
 otelstore exposes the query surface as Model Context Protocol tools over
@@ -93,10 +107,16 @@ failing agent gets its failure context in one call.
 
 ## Retention
 
-By default otelstore keeps everything. Set `-retention` to a duration (e.g.
-`-retention 168h`) and a background sweeper periodically deletes spans, logs,
-and metrics older than that window. Suitable for a long-running local daemon so
-the SQLite file stays bounded.
+By default otelstore keeps everything. Two independent FIFO limits bound the
+store, and they can be combined:
+
+- **Age** — `-retention <duration>` deletes spans, logs, and metrics older than
+  the window (e.g. `-retention 4320h` keeps 180 days).
+- **Size** — `-max-size <bytes>` evicts the oldest rows once the database file
+  exceeds the cap, until it's back under.
+
+A single background sweeper applies whichever limits are set. Suitable for a
+long-running local daemon so the SQLite file stays bounded.
 
 ## Metrics support notes
 

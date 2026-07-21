@@ -77,3 +77,23 @@ func okHandler() http.Handler {
 		w.WriteHeader(http.StatusOK)
 	})
 }
+
+func TestMiddlewareHealthBypassesAuth(t *testing.T) {
+	// With a token set, health/readiness probes must still pass WITHOUT a token.
+	h := Middleware("s3cret-token")(okHandler())
+	for _, path := range []string{"/healthz", "/readyz"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Errorf("%s should bypass auth: got %d, want 200", path, rr.Code)
+		}
+	}
+	// A normal path still requires the token.
+	req := httptest.NewRequest(http.MethodGet, "/v1/query", nil)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("/v1/query without token: got %d, want 401", rr.Code)
+	}
+}

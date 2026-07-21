@@ -108,8 +108,9 @@ curl "localhost:4319/v1/metrics?name=claude_code.cost.usage"
 | `-ingest-port` | `:4318`     | OTLP HTTP ingest address                               |
 | `-query-port`  | `:4319`     | REST query API address                                 |
 | `-mcp-addr`    | `:4320`     | MCP query server address                               |
-| `-auth-token`  | _(empty)_   | Bearer token; if set, required on all endpoints. Also `OTELSTORE_AUTH_TOKEN` |
-| `-retention`   | `0`         | Delete data older than this (e.g. `168h`); `0` disables |
+| `-auth-token`  | _(empty)_   | Bearer token; if set, required on all endpoints except `/healthz` and `/readyz`. Also `OTELSTORE_AUTH_TOKEN` |
+| `-retention`   | `0`         | Age FIFO: delete data older than this (e.g. `4320h` = 180 days); `0` disables |
+| `-max-size`    | `0`         | Size FIFO: evict oldest rows until the DB is under this many bytes; `0` disables |
 
 When `-auth-token` is empty, otelstore is open (intended for localhost). When
 set, every ingest and query request must send `Authorization: Bearer <token>`.
@@ -134,7 +135,19 @@ curl "localhost:4319/v1/traces/<hex-trace-id>"
 
 # metrics by name
 curl "localhost:4319/v1/metrics?name=claude_code.token.usage"
+
+# events/logs by event.name and/or minimum severity
+curl "localhost:4319/v1/logs?event_name=claude_code.api_error"
+curl "localhost:4319/v1/logs?min_severity=17"          # error and above
+
+# health / readiness (never require a token)
+curl "localhost:4319/healthz"
+curl "localhost:4319/readyz"
 ```
+
+Retention has two independent FIFO strategies, usable together: `-retention`
+drops data past an age window (e.g. keep 180 days), and `-max-size` evicts the
+oldest rows once the database exceeds a byte cap.
 
 MCP (`:4320`) exposes tools `query_job`, `query_run`, and `get_trace` so an agent
 can read its own telemetry and self-remediate. See the OpenAPI schema in

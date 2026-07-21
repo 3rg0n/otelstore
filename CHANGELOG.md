@@ -6,6 +6,19 @@ semantic versioning once released.
 
 ## [Unreleased]
 
+### Added — 2026-07-21 (event queries, health probes, size retention)
+
+- **Query logs/events** — `GET /v1/logs?event_name=&min_severity=`. OTLP events
+  are log records with an `event.name`; it's now promoted to an indexed column
+  and directly queryable, optionally filtered by minimum severity. New
+  `store.QueryLogs`.
+- **Health probes** — `GET /healthz` (liveness) and `GET /readyz` (store ping;
+  503 if down). Both always bypass bearer auth so external health-checkers
+  (Traefik, k8s, containers) can probe without a token.
+- **Size-based retention** — `-max-size <bytes>` evicts oldest rows (FIFO) once
+  the DB exceeds the cap, complementing the existing age-based `-retention`
+  (e.g. `4320h` = 180 days). New `store.EnforceMaxSize` / `store.DBSize`.
+
 ### Added — 2026-07-21 (polish)
 
 - `-version` flag and a startup version log line. The version is stamped at
