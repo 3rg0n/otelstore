@@ -11,6 +11,30 @@ query them back over REST or MCP.
 Pure Go, no CGO — a single static executable on macOS, Linux, and Windows. No
 external services, no database to provision.
 
+## The whole idea
+
+```
+                        ┌──────────────────────────────┐
+  many clients ──OTLP──▶│  otelstore                   │──▶ query API
+  (any SDK, any OTLP     │  logs · traces · metrics ·   │    REST + MCP
+   tool, Claude Code)    │  events  →  one SQLite file  │
+                        └──────────────────────────────┘
+```
+
+Point anything that emits **OTLP** at it — apps with an OpenTelemetry SDK,
+auto-instrumentation agents, Claude Code, or even an upstream OTel Collector.
+otelstore receives every signal, stores it in one file, and answers queries.
+Think VictoriaLogs + VictoriaTraces + VictoriaMetrics, but **one binary instead
+of three**.
+
+"Events" aren't a separate thing to configure: in OpenTelemetry an event is a
+log record (with an `event.name`), so events are stored and queried through the
+logs path — nothing extra to set up.
+
+The one requirement: clients speak **OTLP**, the vendor-neutral standard almost
+everything emits. A source that only speaks Prometheus-scrape or Zipkin needs a
+translator in front — that's the source's quirk, not otelstore's job.
+
 ## Status
 
 Early MVP — usable locally today; not a hardened multi-tenant service.
