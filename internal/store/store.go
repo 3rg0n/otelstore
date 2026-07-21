@@ -38,6 +38,23 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
+	// WAL + NORMAL sync: concurrent read while ingesting, and far fewer fsyncs
+	// than the default. Batches are still transaction-wrapped in Insert*.
+	if path != ":memory:" {
+		for _, pragma := range []string{
+			"PRAGMA journal_mode=WAL",
+			"PRAGMA synchronous=NORMAL",
+			"PRAGMA busy_timeout=5000",
+		} {
+			if _, err := db.Exec(pragma); err != nil {
+				if closeErr := db.Close(); closeErr != nil {
+					_ = closeErr
+				}
+				return nil, fmt.Errorf("failed to set %q: %w", pragma, err)
+			}
+		}
+	}
+
 	return &Store{db: db}, nil
 }
 
@@ -207,7 +224,16 @@ func (s *Store) InsertSpans(
 		return nil
 	}
 
-	stmt, err := s.db.PrepareContext(ctx, `
+	// One transaction for the whole batch: without this, each INSERT is its own
+	// implicit transaction with an fsync — the difference between hundreds and
+	// tens of thousands of spans/sec.
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }() // no-op after a successful Commit
+
+	stmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO spans (
 			trace_id, span_id, parent_span_id, name, kind,
 			start_ns, end_ns, status_code, status_message,
@@ -274,6 +300,9 @@ func (s *Store) InsertSpans(
 		}
 	}
 
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit spans: %w", err)
+	}
 	return nil
 }
 
@@ -288,7 +317,13 @@ func (s *Store) InsertLogs(
 		return nil
 	}
 
-	stmt, err := s.db.PrepareContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	stmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO logs (
 			trace_id, span_id, time_ns, severity_number, severity_text,
 			body, run_id, job_id, attributes
@@ -339,6 +374,9 @@ func (s *Store) InsertLogs(
 		}
 	}
 
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit logs: %w", err)
+	}
 	return nil
 }
 
@@ -353,7 +391,13 @@ func (s *Store) InsertMetrics(
 		return nil
 	}
 
-	stmt, err := s.db.PrepareContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	stmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO metrics (
 			name, value_double, time_ns, run_id, job_id, attributes
 		) VALUES (?, ?, ?, ?, ?, ?)
@@ -415,6 +459,9 @@ func (s *Store) InsertMetrics(
 		// Skip unsupported metric types (Histogram, Exponential Histogram, Summary)
 	}
 
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit metrics: %w", err)
+	}
 	return nil
 }
 
