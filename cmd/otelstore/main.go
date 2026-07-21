@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -19,7 +20,12 @@ import (
 	"github.com/otel/internal/store"
 )
 
+// version is the build version, overridden at release time via
+// -ldflags "-X main.version=vX.Y.Z". Defaults to "dev" for local builds.
+var version = "dev"
+
 func main() {
+	showVersion := flag.Bool("version", false, "Print version and exit")
 	dbPath := flag.String("db-path", ":memory:", "Path to SQLite database file")
 	// Defaults bind to loopback (127.0.0.1) so a plain run is local-only — no
 	// firewall prompt and not exposed to the LAN. To accept remote traffic,
@@ -32,6 +38,13 @@ func main() {
 	authToken := flag.String("auth-token", "", "Bearer token for authentication (if empty, auth disabled)")
 	retention := flag.Duration("retention", 0, "Data retention duration (e.g. 168h); 0 disables retention")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println("otelstore", version)
+		return
+	}
+
+	log.Printf("otelstore %s", version)
 
 	// Check for auth token from environment (flag takes precedence)
 	if *authToken == "" {

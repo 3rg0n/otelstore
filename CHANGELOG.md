@@ -6,6 +6,13 @@ semantic versioning once released.
 
 ## [Unreleased]
 
+### Added — 2026-07-21 (polish)
+
+- `-version` flag and a startup version log line. The version is stamped at
+  release time via `-ldflags "-X main.version=<tag>"` (defaults to `dev` for
+  local builds); `scripts/build-release.sh` derives it from the git tag.
+- README status badges (CI, latest release, license, Go version).
+
 ### Added — 2026-07-21 (e2e harness, CI, landing page)
 
 - **End-to-end test harness** (`test/e2e`, `-tags e2e`) — spawns the compiled

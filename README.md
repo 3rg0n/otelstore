@@ -1,5 +1,10 @@
 # otelstore
 
+[![CI](https://github.com/3rg0n/otelstore/actions/workflows/ci.yml/badge.svg)](https://github.com/3rg0n/otelstore/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/3rg0n/otelstore?sort=semver)](https://github.com/3rg0n/otelstore/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Go](https://img.shields.io/badge/go-1.26-00ADD8.svg)](https://go.dev)
+
 One binary. The whole local OpenTelemetry stack.
 
 Instead of standing up an OTel Collector **and** Loki **and** Tempo **and**
@@ -97,6 +102,7 @@ curl "localhost:4319/v1/metrics?name=claude_code.cost.usage"
 
 | Flag           | Default     | Description                                            |
 |----------------|-------------|--------------------------------------------------------|
+| `-version`     | —           | Print version and exit                                 |
 | `-db-path`     | `:memory:`  | SQLite file path; `:memory:` is ephemeral              |
 | `-grpc-port`   | `:4317`     | OTLP gRPC ingest address                               |
 | `-ingest-port` | `:4318`     | OTLP HTTP ingest address                               |

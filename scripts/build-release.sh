@@ -12,8 +12,11 @@ set -eu
 
 OUT=dist
 PKG=./cmd/otelstore
-# Trim paths and strip debug info for smaller, reproducible binaries.
-LDFLAGS="-s -w"
+# Version stamped into the binary (main.version). Prefer an explicit $VERSION,
+# else the current git tag, else "dev".
+VERSION="${VERSION:-$(git describe --tags --exact-match 2>/dev/null || git describe --tags 2>/dev/null || echo dev)}"
+# Trim paths, strip debug info, and stamp the version.
+LDFLAGS="-s -w -X main.version=${VERSION}"
 
 # target list: "GOOS/GOARCH"
 TARGETS="darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64"
