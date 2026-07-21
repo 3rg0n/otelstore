@@ -1,0 +1,28 @@
+README.md
+  s_e235e14927312e::t_b881744af13062 111-115
+test/e2e/harness_test.go
+  s_e235e14927312e::t_23c96045bea9a5 139,161,242
+  s_e235e14927312e::t_764b0ee1d7445b 66-75,78-103,105
+  s_e235e14927312e::t_2ef960046e37e3 23
+  s_e235e14927312e::t_5c0c4a828e29ad 61-63
+cmd/otelstore/main.go
+  s_e235e14927312e::t_0493e7880a5c02 24-31
+test/e2e/e2e_test.go
+  s_e235e14927312e::t_23c96045bea9a5 42,112,143,162
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "2c007f18cbc3a4ee098b1c97de6835aa35b7759e",
+  "prompts": {},
+  "sessions": {
+    "s_e235e14927312e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4ff4b505-745a-4f5b-8d6b-181ff86bb3fe",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "3rg0n <62959009+3rg0n@users.noreply.github.com>"
+    }
+  }
+}
