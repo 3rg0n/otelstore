@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/otel/internal/store"
+	"github.com/3rg0n/otelstore/internal/store"
 	"google.golang.org/protobuf/proto"
 
 	otlpcommonv1 "go.opentelemetry.io/proto/otlp/common/v1"

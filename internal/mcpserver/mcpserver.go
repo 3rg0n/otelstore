@@ -6,7 +6,7 @@ import (
 	"net/http"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/otel/internal/store"
+	"github.com/3rg0n/otelstore/internal/store"
 )
 
 // QueryJobInput is the input for the query_job tool.

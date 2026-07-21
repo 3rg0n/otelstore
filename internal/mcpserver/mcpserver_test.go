@@ -9,7 +9,7 @@ import (
 	otplogsv1 "go.opentelemetry.io/proto/otlp/logs/v1"
 	otlptracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
 
-	"github.com/otel/internal/store"
+	"github.com/3rg0n/otelstore/internal/store"
 )
 
 func seedTestStore(t *testing.T) *store.Store {

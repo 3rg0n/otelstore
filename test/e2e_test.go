@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/otel/emit"
-	"github.com/otel/internal/query"
-	"github.com/otel/internal/receiver"
-	"github.com/otel/internal/store"
+	"github.com/3rg0n/otelstore/emit"
+	"github.com/3rg0n/otelstore/internal/query"
+	"github.com/3rg0n/otelstore/internal/receiver"
+	"github.com/3rg0n/otelstore/internal/store"
 	"google.golang.org/protobuf/proto"
 
 	"go.opentelemetry.io/otel"

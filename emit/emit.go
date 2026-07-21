@@ -13,7 +13,7 @@ import (
 )
 
 // Tracer name constant — used as the instrumentation scope name.
-const tracerName = "github.com/otel/emit"
+const tracerName = "github.com/3rg0n/otelstore/emit"
 
 // Correlation spine — owned keys (stable, never subject to semconv churn).
 const (

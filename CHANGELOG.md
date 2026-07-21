@@ -85,7 +85,7 @@ semantic versioning once released.
     `job_id`) as the stable spine; OpenTelemetry GenAI semantic conventions
     (`gen_ai.*`) as decoration only; rule that span name == `gen_ai.operation.name`
     byte-for-byte across languages; model op pinned to `chat`.
-  - `emit/go` — Go emitter helper (`StartWorkflowSpan`/`StartAgentSpan`/
+  - `emit/` — Go emitter helper (`StartWorkflowSpan`/`StartAgentSpan`/
     `StartPlanSpan`/`StartToolSpan`/`StartModelSpan`/`RecordError`) with a
     real conformance test suite (in-memory exporter; asserts the negative
     case that `job_id` is absent on workflow spans).
@@ -102,7 +102,7 @@ semantic versioning once released.
     (exactly-one-filter, correlated spans + logs).
   - `cmd/otelstore` — single binary wiring receiver + query servers with
     hardened HTTP timeouts and graceful shutdown.
-  - `test/e2e_test.go` — end-to-end proof: the `emit/go` helper exports via a
+  - `test/e2e_test.go` — end-to-end proof: the `emit/` helper exports via a
     real OTLP HTTP exporter → receiver → store → query, asserting emit span
     names, error status, correlated logs, and trace ordering survive the round trip.
 - **`api/openapi.yaml`** — OpenAPI 3.1 schema for the query API (API-first).

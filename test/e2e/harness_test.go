@@ -86,7 +86,7 @@ func buildBinary(t *testing.T) string {
 			buildErr = err
 			return
 		}
-		if _, err := os.Stat("../../go.work"); err != nil {
+		if _, err := os.Stat("../../go.mod"); err != nil {
 			buildErr = fmt.Errorf("expected repo root two levels up: %w", err)
 			return
 		}

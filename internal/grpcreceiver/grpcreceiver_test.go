@@ -6,7 +6,7 @@ import (
 	"net"
 	"testing"
 
-	"github.com/otel/internal/store"
+	"github.com/3rg0n/otelstore/internal/store"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"

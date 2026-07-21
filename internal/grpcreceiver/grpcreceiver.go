@@ -3,8 +3,8 @@ package grpcreceiver
 import (
 	"context"
 
-	"github.com/otel/internal/auth"
-	"github.com/otel/internal/store"
+	"github.com/3rg0n/otelstore/internal/auth"
+	"github.com/3rg0n/otelstore/internal/store"
 	collectorlogsv1 "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	collectormetricsv1 "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	collectortracesv1 "go.opentelemetry.io/proto/otlp/collector/trace/v1"

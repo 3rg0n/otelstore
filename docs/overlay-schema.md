@@ -21,7 +21,7 @@ keys are the spine; `gen_ai.*` rides along for ecosystem interop.
 A markdown doc alone drifts. The contract is enforced by all three:
 
 1. **Describe** — this document (the reference: spans, attributes, rules).
-2. **Encode** — per-language emitter helpers (`emit/go`, `emit/rust`). The
+2. **Encode** — per-language emitter helpers (`emit/`, `emit/rust`). The
    *only* sanctioned way to start these spans; they set required attributes so
    an emitter cannot forget or misname them. Emitters call helpers, never set
    span names / `gen_ai.*` attributes by hand.

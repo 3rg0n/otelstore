@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/otel/internal/store"
+	"github.com/3rg0n/otelstore/internal/store"
 )
 
 // Handler handles REST query endpoints.

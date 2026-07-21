@@ -4,7 +4,7 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/otel/internal/store"
+	"github.com/3rg0n/otelstore/internal/store"
 	"google.golang.org/protobuf/proto"
 
 	collectorlogsv1 "go.opentelemetry.io/proto/otlp/collector/logs/v1"

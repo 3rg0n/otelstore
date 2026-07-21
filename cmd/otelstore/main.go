@@ -12,12 +12,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/otel/internal/auth"
-	"github.com/otel/internal/grpcreceiver"
-	"github.com/otel/internal/mcpserver"
-	"github.com/otel/internal/query"
-	"github.com/otel/internal/receiver"
-	"github.com/otel/internal/store"
+	"github.com/3rg0n/otelstore/internal/auth"
+	"github.com/3rg0n/otelstore/internal/grpcreceiver"
+	"github.com/3rg0n/otelstore/internal/mcpserver"
+	"github.com/3rg0n/otelstore/internal/query"
+	"github.com/3rg0n/otelstore/internal/receiver"
+	"github.com/3rg0n/otelstore/internal/store"
 )
 
 // version is the build version, overridden at release time via
