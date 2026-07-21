@@ -1,0 +1,58 @@
+cmd/otelstore/main.go
+  s_e235e14927312e::t_27289f7fb3a7d3 114,116,118-123,125,132-145
+  s_e235e14927312e::t_6f694a710e1980 39-40
+README.md
+  s_e235e14927312e::t_a5746af5b18ac7 111-113
+  s_e235e14927312e::t_c3771530583b0a 138-145,148-150
+  s_3f706e3f4b4643::t_c2121ff06049ff 151
+internal/auth/auth.go
+  s_e235e14927312e::t_b3281e3e42a2c1 25-31,34-35,39
+internal/store/store.go
+  s_e235e14927312e::t_9d29b374bfd846 345-353,382
+  s_e235e14927312e::t_af249214320834 332-333
+  s_e235e14927312e::t_3b2656a12d9d01 95,101-102
+  s_e235e14927312e::t_6ce68908eea01d 598-639
+  s_e235e14927312e::t_8382a9f4fa8e27 853-926
+internal/auth/auth_test.go
+  s_e235e14927312e::t_e36d9ce7bece42 80-99
+internal/query/query.go
+  s_e235e14927312e::t_51cec046faad6e 23-25
+  s_e235e14927312e::t_23cbb9576a42f2 196-264
+api/openapi.yaml
+  s_e235e14927312e::t_ac77240ce1a1d8 90-135
+  s_e235e14927312e::t_8bf01dc558375e 172
+internal/query/query_test.go
+  s_e235e14927312e::t_d21e3e0c369f8a 12,177-253
+CHANGELOG.md
+  s_e235e14927312e::t_d4a2883ddea88a 9-21
+docs/usage.md
+  s_e235e14927312e::t_941ee11383c34f 110-119
+  s_e235e14927312e::t_ea1a5b60a001db 80-93
+internal/store/store_test.go
+  s_e235e14927312e::t_a9039708ffe2ef 427-546
+  s_e235e14927312e::t_62963507a21d8c 8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "597d36d214290e4ed3f6d00a8bff14572baccee2",
+  "prompts": {},
+  "sessions": {
+    "s_3f706e3f4b4643": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0d91ced6-3b3b-46d0-b2cb-8b38a3429c2a",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "3rg0n <62959009+3rg0n@users.noreply.github.com>"
+    },
+    "s_e235e14927312e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4ff4b505-745a-4f5b-8d6b-181ff86bb3fe",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "3rg0n <62959009+3rg0n@users.noreply.github.com>"
+    }
+  }
+}
