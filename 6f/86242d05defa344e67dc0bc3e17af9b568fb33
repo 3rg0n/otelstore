@@ -1,0 +1,48 @@
+internal/mcpserver/mcpserver.go
+  s_e235e14927312e::t_2dc900b6ed11b6 9
+internal/mcpserver/mcpserver_test.go
+  s_e235e14927312e::t_2dc900b6ed11b6 12
+internal/grpcreceiver/grpcreceiver.go
+  s_e235e14927312e::t_2dc900b6ed11b6 6-7
+go.mod
+  s_e235e14927312e::t_2dc900b6ed11b6 1
+  s_e235e14927312e::t_57c6929040e66f 10
+internal/receiver/receiver_test.go
+  s_e235e14927312e::t_2dc900b6ed11b6 10
+internal/grpcreceiver/grpcreceiver_test.go
+  s_e235e14927312e::t_2dc900b6ed11b6 9
+docs/overlay-schema.md
+  s_e235e14927312e::t_ed898f8b908e9f 24
+cmd/otelstore/main.go
+  s_e235e14927312e::t_2dc900b6ed11b6 15-20
+internal/receiver/receiver.go
+  s_e235e14927312e::t_2dc900b6ed11b6 7
+test/e2e/harness_test.go
+  s_e235e14927312e::t_569a7292590862 89
+test/e2e_test.go
+  s_e235e14927312e::t_2dc900b6ed11b6 13-16
+internal/query/query.go
+  s_e235e14927312e::t_2dc900b6ed11b6 8
+CHANGELOG.md
+  s_e235e14927312e::t_ed898f8b908e9f 88,105
+internal/query/query_test.go
+  s_e235e14927312e::t_2dc900b6ed11b6 10
+emit/emit.go
+  s_e235e14927312e::t_822c33cff4e117 16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "6f86242d05defa344e67dc0bc3e17af9b568fb33",
+  "prompts": {},
+  "sessions": {
+    "s_e235e14927312e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4ff4b505-745a-4f5b-8d6b-181ff86bb3fe",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "3rg0n <62959009+3rg0n@users.noreply.github.com>"
+    }
+  }
+}
