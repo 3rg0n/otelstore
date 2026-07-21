@@ -2,6 +2,7 @@ package auth
 
 import (
 	"crypto/subtle"
+	"log"
 	"net/http"
 	"strings"
 )
@@ -20,6 +21,18 @@ func TokenValid(authHeader, expected string) bool {
 		return false
 	}
 	return subtle.ConstantTimeCompare([]byte(rest), []byte(expected)) == 1
+}
+
+// sanitizeForLog strips control characters (notably CR/LF) from a value before
+// it is written to a log line, preventing log-injection/forging (CWE-117) via
+// attacker-influenced fields like the request path or remote address.
+func sanitizeForLog(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return '_'
+		}
+		return r
+	}, s)
 }
 
 // unauthenticatedPaths bypass bearer auth so external health-checkers (Traefik,
@@ -42,6 +55,17 @@ func Middleware(authToken string) func(http.Handler) http.Handler {
 			}
 
 			if !TokenValid(r.Header.Get("Authorization"), authToken) {
+				// Audit the rejection with source + path + reason. Never log the
+				// token or the Authorization header value itself. Fields are
+				// sanitized to prevent log injection (CWE-117) via crafted paths.
+				reason := "invalid token"
+				if r.Header.Get("Authorization") == "" {
+					reason = "missing authorization header"
+				}
+				// #nosec G706 -- fields pass through sanitizeForLog (strips CR/LF
+				// and control chars), neutralizing log injection.
+				log.Printf("auth: rejected %s %s from %s (%s)",
+					sanitizeForLog(r.Method), sanitizeForLog(r.URL.Path), sanitizeForLog(r.RemoteAddr), reason)
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}

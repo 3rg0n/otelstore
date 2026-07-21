@@ -2,6 +2,7 @@ package grpcreceiver
 
 import (
 	"context"
+	"log"
 
 	"github.com/3rg0n/otelstore/internal/auth"
 	"github.com/3rg0n/otelstore/internal/store"
@@ -11,6 +12,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 )
 
@@ -155,18 +157,31 @@ func makeAuthInterceptor(authToken string) grpc.UnaryServerInterceptor {
 
 		md, ok := metadata.FromIncomingContext(ctx)
 		if !ok {
+			logAuthReject(ctx, info.FullMethod, "missing metadata")
 			return nil, status.Error(codes.Unauthenticated, "missing metadata")
 		}
 
 		authHeaders := md.Get("authorization")
 		if len(authHeaders) == 0 {
+			logAuthReject(ctx, info.FullMethod, "missing authorization header")
 			return nil, status.Error(codes.Unauthenticated, "missing authorization header")
 		}
 
 		if !auth.TokenValid(authHeaders[0], authToken) {
+			logAuthReject(ctx, info.FullMethod, "invalid token")
 			return nil, status.Error(codes.Unauthenticated, "invalid token")
 		}
 
 		return handler(ctx, req)
 	}
+}
+
+// logAuthReject audits a gRPC auth rejection with the peer address, method, and
+// reason. It never logs the token or the authorization metadata value.
+func logAuthReject(ctx context.Context, method, reason string) {
+	addr := "unknown"
+	if p, ok := peer.FromContext(ctx); ok && p.Addr != nil {
+		addr = p.Addr.String()
+	}
+	log.Printf("auth: rejected gRPC %s from %s (%s)", method, addr, reason)
 }

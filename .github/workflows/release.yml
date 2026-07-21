@@ -8,12 +8,15 @@ on:
   push:
     tags: ['v*']
 
+# Default to read-only; grant write only to the job that needs it (below).
 permissions:
-  contents: write   # required to create the release + upload assets
+  contents: read
 
 jobs:
   release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # scoped to this job: create the release + upload assets
     steps:
       # actions/checkout v7.0.1 — pinned by SHA
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -25,6 +28,12 @@ jobs:
       - name: Build release binaries
         run: sh scripts/build-release.sh
 
+      - name: Generate SBOM (CycloneDX)
+        # Pinned version (no third-party action) for supply-chain hygiene.
+        run: |
+          go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.10.0
+          cyclonedx-gomod mod -json -output dist/otelstore.cdx.json
+
       - name: Create release and upload binaries
         env:
           GH_TOKEN: ${{ github.token }}
@@ -32,4 +41,4 @@ jobs:
           gh release create "${GITHUB_REF_NAME}" \
             --title "otelstore ${GITHUB_REF_NAME}" \
             --generate-notes \
-            dist/otelstore-* dist/SHA256SUMS
+            dist/otelstore-* dist/SHA256SUMS dist/otelstore.cdx.json

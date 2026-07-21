@@ -6,6 +6,21 @@ semantic versioning once released.
 
 ## [Unreleased]
 
+### Added — 2026-07-21 (threat-model hardening backlog)
+
+- **Audit logging:** auth failures are now logged (HTTP middleware + gRPC
+  interceptor) with source, path/method, and reason — never the token. Logged
+  fields are sanitized against log injection (CWE-117).
+- **Non-loopback warning:** startup logs a prominent WARNING if any listener
+  binds a non-loopback address while auth is disabled.
+- **`-auth-token-file` / `OTELSTORE_AUTH_TOKEN_FILE`:** read the bearer token
+  from a file to avoid exposing it in process args/env.
+- **Release workflow:** `contents: write` scoped to the release job (top-level
+  read-only); SBOM (CycloneDX via pinned cyclonedx-gomod) generated and attached
+  to releases.
+- **Governance:** `.github/dependabot.yml` (gomod, cargo, github-actions);
+  `.gitignore` adds `*.jks`/`*.jceks`.
+
 ### Security — 2026-07-21 (MAESTRO threat model + fixes)
 
 - **Critical: authenticated the MCP query server.** The MCP endpoint (:4320)

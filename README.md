@@ -109,6 +109,7 @@ curl "localhost:4319/v1/metrics?name=claude_code.cost.usage"
 | `-query-port`  | `:4319`     | REST query API address                                 |
 | `-mcp-addr`    | `:4320`     | MCP query server address                               |
 | `-auth-token`  | _(empty)_   | Bearer token; if set, required on all endpoints except `/healthz` and `/readyz`. Also `OTELSTORE_AUTH_TOKEN` |
+| `-auth-token-file` | _(empty)_ | Read the bearer token from a file (avoids exposing it in process args/env). Also `OTELSTORE_AUTH_TOKEN_FILE` |
 | `-retention`   | `0`         | Age FIFO: delete data older than this (e.g. `4320h` = 180 days); `0` disables |
 | `-max-size`    | `0`         | Size FIFO: evict oldest rows until the DB is under this many bytes; `0` disables |
 

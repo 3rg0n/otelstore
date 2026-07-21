@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -35,7 +37,8 @@ func main() {
 	ingestPort := flag.String("ingest-port", "127.0.0.1:4318", "Address for HTTP OTLP ingest server")
 	queryPort := flag.String("query-port", "127.0.0.1:4319", "Address for query API server")
 	mcpAddr := flag.String("mcp-addr", "127.0.0.1:4320", "Address for MCP query server")
-	authToken := flag.String("auth-token", "", "Bearer token for authentication (if empty, auth disabled)")
+	authToken := flag.String("auth-token", "", "Bearer token for authentication (if empty, auth disabled). Prefer -auth-token-file or OTELSTORE_AUTH_TOKEN_FILE to avoid exposing the token in process args.")
+	authTokenFile := flag.String("auth-token-file", "", "Path to a file containing the bearer token (avoids exposing it via argv/env). Also OTELSTORE_AUTH_TOKEN_FILE.")
 	retention := flag.Duration("retention", 0, "Age-based retention: delete data older than this (e.g. 4320h = 180 days); 0 disables")
 	maxSize := flag.Int64("max-size", 0, "Size cap in bytes: evict oldest rows (FIFO) until the DB is under this; 0 disables")
 	flag.Parse()
@@ -47,10 +50,41 @@ func main() {
 
 	log.Printf("otelstore %s", version)
 
-	// Check for auth token from environment (flag takes precedence)
+	// Resolve the auth token. Precedence: -auth-token flag > OTELSTORE_AUTH_TOKEN
+	// env > token file (-auth-token-file / OTELSTORE_AUTH_TOKEN_FILE). A file is
+	// the least-exposed option (not visible in argv or the process environment).
 	if *authToken == "" {
 		if envToken, ok := os.LookupEnv("OTELSTORE_AUTH_TOKEN"); ok {
 			authToken = &envToken
+		}
+	}
+	if *authToken == "" {
+		tokenFile := *authTokenFile
+		if tokenFile == "" {
+			tokenFile = os.Getenv("OTELSTORE_AUTH_TOKEN_FILE")
+		}
+		if tokenFile != "" {
+			// Path is an operator-supplied config flag (same trust level as
+			// -db-path), not attacker-controlled input; clean it and read.
+			cleaned := filepath.Clean(tokenFile)
+			data, err := os.ReadFile(cleaned) // #nosec G304 G703 -- operator-provided token file path
+			if err != nil {
+				log.Fatalf("failed to read auth token file: %v", err)
+			}
+			tok := strings.TrimSpace(string(data))
+			authToken = &tok
+		}
+	}
+
+	// Warn if any listener binds a non-loopback address without auth — the
+	// telemetry would then be readable by anyone on the network.
+	if *authToken == "" {
+		for _, addr := range []string{*grpcPort, *ingestPort, *queryPort, *mcpAddr} {
+			if isNonLoopback(addr) {
+				log.Printf("WARNING: listening on non-loopback %q with no auth token; "+
+					"all telemetry is unauthenticated. Set -auth-token (and front with a TLS proxy).", addr)
+				break
+			}
 		}
 	}
 
@@ -241,4 +275,26 @@ func minDuration(a, b time.Duration) time.Duration {
 		return a
 	}
 	return b
+}
+
+// isNonLoopback reports whether a listen address binds something other than
+// localhost. Empty host (":4317") and 0.0.0.0/:: are treated as non-loopback
+// (exposed); 127.0.0.1 and [::1] are loopback.
+func isNonLoopback(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false // unparseable — don't emit a misleading warning
+	}
+	switch host {
+	case "127.0.0.1", "::1", "localhost":
+		return false
+	}
+	if host == "" {
+		return true // ":4317" binds all interfaces
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return true // hostname — assume routable
+	}
+	return !ip.IsLoopback()
 }

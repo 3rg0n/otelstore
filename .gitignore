@@ -25,6 +25,8 @@ vendor/
 *.key
 *.p12
 *.pfx
+*.jks
+*.jceks
 credentials.json
 *_secret*
 *.token

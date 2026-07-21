@@ -1,0 +1,22 @@
+version: 2
+updates:
+  # Go modules (root module).
+  - package-ecosystem: gomod
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  # Rust emit helper crate.
+  - package-ecosystem: cargo
+    directory: "/emit/rust"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  # GitHub Actions used in CI/release workflows.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
