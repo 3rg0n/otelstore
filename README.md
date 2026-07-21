@@ -108,6 +108,11 @@ curl "localhost:4319/v1/metrics?name=claude_code.cost.usage"
 When `-auth-token` is empty, otelstore is open (intended for localhost). When
 set, every ingest and query request must send `Authorization: Bearer <token>`.
 
+**Binding:** by default every port binds `127.0.0.1` (loopback only) — local-only,
+and no host-firewall prompt. To accept traffic from other machines, pass an
+explicit host, e.g. `-grpc-port 0.0.0.0:4317`, and set `-auth-token` (and front
+with a proxy for TLS).
+
 ## Querying
 
 REST:

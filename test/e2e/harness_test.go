@@ -20,6 +20,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"testing"
 	"time"
 
@@ -57,29 +58,51 @@ func freePort(t *testing.T) string {
 		t.Fatalf("reserve port: %v", err)
 	}
 	defer l.Close()
-	return fmt.Sprintf(":%d", l.Addr().(*net.TCPAddr).Port)
+	// Bind loopback explicitly so spawned test binaries are local-only and
+	// don't trigger a host firewall prompt.
+	return fmt.Sprintf("127.0.0.1:%d", l.Addr().(*net.TCPAddr).Port)
 }
 
-// buildBinary compiles otelstore once into a temp dir (CGO-free) and returns
-// the path. Fails the test if the build itself fails.
+var (
+	buildOnce sync.Once
+	builtBin  string
+	buildErr  error
+)
+
+// buildBinary compiles otelstore ONCE per test run (CGO-free) into a single
+// stable path and returns it. Using one fixed path — rather than a fresh
+// t.TempDir() per test — means the OS sees one program identity, so a host
+// firewall prompts at most once for the whole suite instead of once per test.
 func buildBinary(t *testing.T) string {
 	t.Helper()
-	name := "otelstore-e2e"
-	if runtime.GOOS == "windows" {
-		name += ".exe"
+	buildOnce.Do(func() {
+		name := "otelstore-e2e"
+		if runtime.GOOS == "windows" {
+			name += ".exe"
+		}
+		// Stable, run-agnostic location shared by every test in this process.
+		bin := filepath.Join(os.TempDir(), "otelstore-e2e-bin", name)
+		if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
+			buildErr = err
+			return
+		}
+		if _, err := os.Stat("../../go.work"); err != nil {
+			buildErr = fmt.Errorf("expected repo root two levels up: %w", err)
+			return
+		}
+		cmd := exec.Command("go", "build", "-o", bin, "./cmd/otelstore")
+		cmd.Dir = "../.." // repo root
+		cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			buildErr = fmt.Errorf("build otelstore: %w\n%s", err, out)
+			return
+		}
+		builtBin = bin
+	})
+	if buildErr != nil {
+		t.Fatalf("%v", buildErr)
 	}
-	bin := filepath.Join(t.TempDir(), name)
-	if _, err := os.Stat("../../go.work"); err != nil {
-		t.Fatalf("expected repo root two levels up: %v", err)
-	}
-	cmd := exec.Command("go", "build", "-o", bin, "./cmd/otelstore")
-	cmd.Dir = "../.." // repo root
-	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("build otelstore: %v\n%s", err, out)
-	}
-	return bin
+	return builtBin
 }
 
 // launch starts the binary on the given ports with auth + a file-backed DB and
@@ -113,7 +136,7 @@ func launch(t *testing.T, bin, dbPath string) *instance {
 	// Wait until the query port is actually accepting connections.
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
-		c, err := net.DialTimeout("tcp", "127.0.0.1"+inst.queryAddr, 200*time.Millisecond)
+		c, err := net.DialTimeout("tcp", inst.queryAddr, 200*time.Millisecond)
 		if err == nil {
 			c.Close()
 			return inst
@@ -135,7 +158,7 @@ func (inst *instance) stop() {
 
 func grpcConn(t *testing.T, addr string) *grpc.ClientConn {
 	t.Helper()
-	conn, err := grpc.NewClient("127.0.0.1"+addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		t.Fatalf("grpc dial: %v", err)
 	}
@@ -216,7 +239,7 @@ func sendLogHTTP(t *testing.T, httpAddr, token, runID, jobID, body string) (int,
 	if err != nil {
 		return 0, err
 	}
-	httpReq, err := http.NewRequest(http.MethodPost, "http://127.0.0.1"+httpAddr+"/v1/logs", bytes.NewReader(raw))
+	httpReq, err := http.NewRequest(http.MethodPost, "http://"+httpAddr+"/v1/logs", bytes.NewReader(raw))
 	if err != nil {
 		return 0, err
 	}

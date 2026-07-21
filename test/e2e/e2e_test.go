@@ -39,7 +39,7 @@ func TestLiveDataLandsAndIsQueryable(t *testing.T) {
 		t.Fatalf("send log over HTTP: code=%d err=%v", code, err)
 	}
 
-	base := "http://127.0.0.1" + inst.queryAddr
+	base := "http://" + inst.queryAddr
 
 	// trace + correlated log come back under job_id
 	eventually(t, "job_id query returns span + log", func() error {
@@ -109,7 +109,7 @@ func TestAuthEnforced(t *testing.T) {
 	inst := launch(t, bin, dbFile(t))
 	defer inst.stop()
 
-	base := "http://127.0.0.1" + inst.queryAddr
+	base := "http://" + inst.queryAddr
 
 	if c := getJSON(t, base+"/v1/query?job_id=x", "", nil); c != http.StatusUnauthorized {
 		t.Fatalf("no-token query: got %d, want 401", c)
@@ -140,7 +140,7 @@ func TestPersistsAcrossRestart(t *testing.T) {
 	if err := sendMetricGRPC(t, conn, ctx, "persist.check", 42, "JOBP"); err != nil {
 		t.Fatalf("send metric: %v", err)
 	}
-	base1 := "http://127.0.0.1" + inst1.queryAddr
+	base1 := "http://" + inst1.queryAddr
 	eventually(t, "metric visible in first process", func() error {
 		var mr struct {
 			Metrics []map[string]any `json:"metrics"`
@@ -159,7 +159,7 @@ func TestPersistsAcrossRestart(t *testing.T) {
 	// Second process on the SAME db file: the metric must still be there.
 	inst2 := launch(t, bin, db)
 	defer inst2.stop()
-	base2 := "http://127.0.0.1" + inst2.queryAddr
+	base2 := "http://" + inst2.queryAddr
 	var mr struct {
 		Metrics []map[string]any `json:"metrics"`
 	}

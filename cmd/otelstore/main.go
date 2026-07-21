@@ -21,10 +21,14 @@ import (
 
 func main() {
 	dbPath := flag.String("db-path", ":memory:", "Path to SQLite database file")
-	grpcPort := flag.String("grpc-port", ":4317", "Port for gRPC OTLP receiver")
-	ingestPort := flag.String("ingest-port", ":4318", "Port for HTTP OTLP ingest server")
-	queryPort := flag.String("query-port", ":4319", "Port for query API server")
-	mcpAddr := flag.String("mcp-addr", ":4320", "Port for MCP query server")
+	// Defaults bind to loopback (127.0.0.1) so a plain run is local-only — no
+	// firewall prompt and not exposed to the LAN. To accept remote traffic,
+	// pass an explicit host, e.g. -grpc-port 0.0.0.0:4317 (front with a proxy
+	// for TLS/auth).
+	grpcPort := flag.String("grpc-port", "127.0.0.1:4317", "Address for gRPC OTLP receiver")
+	ingestPort := flag.String("ingest-port", "127.0.0.1:4318", "Address for HTTP OTLP ingest server")
+	queryPort := flag.String("query-port", "127.0.0.1:4319", "Address for query API server")
+	mcpAddr := flag.String("mcp-addr", "127.0.0.1:4320", "Address for MCP query server")
 	authToken := flag.String("auth-token", "", "Bearer token for authentication (if empty, auth disabled)")
 	retention := flag.Duration("retention", 0, "Data retention duration (e.g. 168h); 0 disables retention")
 	flag.Parse()
