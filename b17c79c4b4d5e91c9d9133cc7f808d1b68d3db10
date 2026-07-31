@@ -1,0 +1,28 @@
+README.md
+  s_e235e14927312e::t_78ee397e11a90b 105
+  s_e235e14927312e::t_9d7d032769ff0a 3-7
+cmd/otelstore/main.go
+  s_e235e14927312e::t_e10ad2b03cd2db 6
+  s_e235e14927312e::t_2372cf6f5dae00 42-48
+  s_e235e14927312e::t_d4a5f6a6b2ad31 23-26,28
+scripts/build-release.sh
+  s_e235e14927312e::t_e0e54ceed013ac 15-19
+CHANGELOG.md
+  s_e235e14927312e::t_d8549f485c682e 9-15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "b17c79c4b4d5e91c9d9133cc7f808d1b68d3db10",
+  "prompts": {},
+  "sessions": {
+    "s_e235e14927312e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4ff4b505-745a-4f5b-8d6b-181ff86bb3fe",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "3rg0n <62959009+3rg0n@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,51 @@
+test/e2e/harness_test.go
+  s_e235e14927312e::t_012e27dbb325b9 49
+  s_e235e14927312e::t_092d16508a1fc4 118,128
+test/e2e/e2e_test.go
+  s_e235e14927312e::t_589cdafc304a0e 6
+  s_e235e14927312e::t_d30d353838c0bc 129-146
+internal/grpcreceiver/grpcreceiver.go
+  s_e235e14927312e::t_51bc142b8aa84e 133-135,140
+cmd/otelstore/main.go
+  s_e235e14927312e::t_f30408a14db09b 75-81,86
+  s_e235e14927312e::t_38dded7c6a4c53 112
+  s_e235e14927312e::t_ffe0d96d4145ea 198-202
+THREAT_MODEL.md
+  s_e235e14927312e::t_3aa64bc62e4c54 1-174
+CHANGELOG.md
+  s_e235e14927312e::t_679cbc377084ba 9-25
+internal/store/store_test.go
+  s_e235e14927312e::t_08703508d9217f 547-586
+.github/workflows/ci.yml
+  s_e235e14927312e::t_78942babd0fc5e 55-56,58-60
+internal/store/store.go
+  s_e235e14927312e::t_3758e72d95a717 560-566,571-572
+internal/receiver/receiver.go
+  s_e235e14927312e::t_8f237de5c42435 15-18,29-34
+  s_e235e14927312e::t_3007aac357ae7a 58,108,158
+  s_9b8d68f5aabdc1::t_cb681d62425947 35-36
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "5914c40594f55dc0b6dcbcc37abb02e34abad261",
+  "prompts": {},
+  "sessions": {
+    "s_9b8d68f5aabdc1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7333820e-bccc-4f3b-9eb9-50e606acc9ac",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "3rg0n <62959009+3rg0n@users.noreply.github.com>"
+    },
+    "s_e235e14927312e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4ff4b505-745a-4f5b-8d6b-181ff86bb3fe",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "3rg0n <62959009+3rg0n@users.noreply.github.com>"
+    }
+  }
+}
