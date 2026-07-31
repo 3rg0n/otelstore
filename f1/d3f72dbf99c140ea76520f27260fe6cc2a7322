@@ -1,0 +1,21 @@
+CLAUDE.md
+  s_51b7e96b3e6839::t_9e182420717f3d 65-69
+  s_51b7e96b3e6839::t_064872c446e387 1-27,29-64,70-114
+  s_51b7e96b3e6839::t_e3206a7480b2ff 28
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "f1d3f72dbf99c140ea76520f27260fe6cc2a7322",
+  "prompts": {},
+  "sessions": {
+    "s_51b7e96b3e6839": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "70b7f846-0c83-4836-97b1-612d2e4d70e6",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "3rg0n <62959009+3rg0n@users.noreply.github.com>"
+    }
+  }
+}
