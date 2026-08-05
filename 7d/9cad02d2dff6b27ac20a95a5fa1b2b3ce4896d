@@ -1,0 +1,27 @@
+docs/usage.md
+  s_51b7e96b3e6839::t_8bdd130021d26f 15,17-23,40-41
+CHANGELOG.md
+  s_51b7e96b3e6839::t_8bdd130021d26f 9-31
+internal/receiver/receiver.go
+  s_51b7e96b3e6839::t_8bdd130021d26f 5-6,8,11,23-29,40-97,106-175,186,194,202,209,215,223,230,236,244,251
+internal/receiver/receiver_json_test.go
+  s_51b7e96b3e6839::t_8bdd130021d26f 1-377
+README.md
+  s_51b7e96b3e6839::t_8bdd130021d26f 48-49,98
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "7d9cad02d2dff6b27ac20a95a5fa1b2b3ce4896d",
+  "prompts": {},
+  "sessions": {
+    "s_51b7e96b3e6839": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "70b7f846-0c83-4836-97b1-612d2e4d70e6",
+        "model": "claude-opus-5"
+      },
+      "human_author": "3rg0n <62959009+3rg0n@users.noreply.github.com>"
+    }
+  }
+}
