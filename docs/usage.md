@@ -12,8 +12,15 @@ uses depends on `OTEL_EXPORTER_OTLP_PROTOCOL`.
 |--------------------|--------------------------|----------------------------------------------|
 | `grpc`             | `http://localhost:4317`  | Bare host:port, no path. OTel default.       |
 | `http/protobuf`    | `http://localhost:4318`  | Paths appended automatically (see below).    |
+| `http/json`        | `http://localhost:4318`  | Same port and paths; selected by `Content-Type: application/json`. |
 
-HTTP ingest paths (protocol `http/protobuf`):
+Both HTTP encodings are served on `:4318` at the same paths, as the OTLP spec
+prescribes. The encoding is chosen per request from `Content-Type`:
+`application/json` is decoded as JSON-encoded protobuf, anything else (including
+an absent header) as binary protobuf. The response is returned in the request's
+encoding.
+
+HTTP ingest paths (`http/protobuf` and `http/json` alike):
 
 | Signal  | Path          |
 |---------|---------------|
@@ -30,8 +37,8 @@ Standard OpenTelemetry SDK environment variables apply:
 export OTEL_EXPORTER_OTLP_PROTOCOL=grpc
 export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
 
-# or HTTP/protobuf
-export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+# or HTTP — protobuf or JSON, same port
+export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf   # or http/json
 export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 
 # auth, if otelstore was started with -auth-token

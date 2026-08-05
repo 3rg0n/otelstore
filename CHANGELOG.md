@@ -6,6 +6,29 @@ semantic versioning once released.
 
 ## [Unreleased]
 
+### Added — 2026-08-05 (OTLP/JSON ingest)
+
+- **HTTP ingest accepts OTLP/JSON** (#7). `:4318` now decodes both encodings on
+  the same port, per the OTLP spec: `Content-Type: application/json` is decoded
+  with `protojson` (`DiscardUnknown: true`, so exporters emitting fields newer
+  than our pinned proto aren't turned into 400s); anything else, including an
+  absent header, stays binary protobuf. Responses are returned in the request's
+  encoding rather than always protobuf. Real clients that only speak OTLP/JSON —
+  e.g. the VS Code GitHub Copilot Chat extension — previously got a 400 on every
+  export and stored nothing. `README.md` and `docs/usage.md` updated: they
+  advertised `HTTP/protobuf` only.
+
+### Fixed — 2026-08-05 (silent ingest rejections)
+
+- **HTTP ingest rejections are no longer silent** (#8). Every non-2xx ingest
+  outcome — bad method, oversized/unreadable body, unmarshal failure, unknown
+  route, store-insert error, response marshal/write failure — now logs one line
+  with method, path, status, stage, `Content-Type`, body length, and error. A
+  receiver that was up but refusing 100% of traffic used to log nothing, making
+  "healthy process, empty database" undiagnosable. Log fields are sanitized
+  against log injection (CWE-117), matching the auth middleware. The success
+  path stays quiet — no line per export.
+
 ### Added — 2026-07-21 (threat-model hardening backlog)
 
 - **Audit logging:** auth failures are now logged (HTTP middleware + gRPC
