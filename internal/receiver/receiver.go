@@ -6,8 +6,11 @@ import (
 	"mime"
 	"net/http"
 	"strings"
+	"unicode"
 
 	"github.com/3rg0n/otelstore/internal/store"
+	rpccode "google.golang.org/genproto/googleapis/rpc/code"
+	statuspb "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
@@ -39,10 +42,19 @@ func NewHandler(s *store.Store) *Handler {
 
 // sanitizeForLog strips control characters (notably CR/LF) from a value before
 // it is written to a log line, preventing log-injection/forging (CWE-117) via
-// client-controlled fields like the request path or Content-Type.
+// client-controlled fields like the request path or Content-Type. It also
+// strips Unicode line/paragraph separators (U+2028/U+2029) and format
+// characters (category Cf, e.g. bidi overrides), which some log viewers and
+// aggregators render as a line break or use to disguise a forged line even
+// though Go's logger does not.
 func sanitizeForLog(s string) string {
 	return strings.Map(func(r rune) rune {
-		if r < 0x20 || r == 0x7f {
+		switch {
+		case r < 0x20, r == 0x7f:
+			return '_'
+		case unicode.Is(unicode.Zl, r), unicode.Is(unicode.Zp, r):
+			return '_'
+		case unicode.Is(unicode.Cf, r):
 			return '_'
 		}
 		return r
@@ -63,12 +75,16 @@ func errString(err error) string {
 // — "healthy process, empty database" should never be diagnosed by guesswork —
 // so no rejection path here is allowed to stay quiet. The success path stays
 // silent to avoid a line per export.
-func logReject(r *http.Request, status int, stage string, err error, bodyLen int) {
+// read is the number of body bytes actually read — not the size the client
+// claimed. On an over-cap body it is the 64 MiB cap, so it says how much was
+// consumed rather than implying the payload was that size.
+func logReject(r *http.Request, status int, stage string, err error, read int) {
 	// #nosec G706 -- every interpolated field passes through sanitizeForLog
-	// (strips CR/LF and control chars), neutralizing log injection.
-	log.Printf("ingest: rejected %s %s %d %s: content-type=%q len=%d err=%s",
+	// (strips CR/LF, control chars and Unicode line separators), neutralizing
+	// log injection.
+	log.Printf("ingest: rejected %s %s %d %s: content-type=%q read=%d err=%s",
 		sanitizeForLog(r.Method), sanitizeForLog(r.URL.Path), status, stage,
-		sanitizeForLog(r.Header.Get("Content-Type")), bodyLen,
+		sanitizeForLog(r.Header.Get("Content-Type")), read,
 		sanitizeForLog(errString(err)))
 }
 
@@ -95,6 +111,42 @@ func requestIsJSON(r *http.Request) bool {
 	return mediaType == contentTypeJSON
 }
 
+// writeError responds to a failed ingest request. The OTLP/HTTP spec requires
+// that 4xx/5xx bodies be a google.rpc.Status message and that the response use
+// the same Content-Type as the request, so a plain-text http.Error would be
+// non-conformant for both encodings. msg is a fixed, non-attacker-controlled
+// string: the underlying error goes to the log (see logReject), not to the
+// client, so ingest failures can't be used to probe server internals.
+func writeError(w http.ResponseWriter, r *http.Request, status int, code rpccode.Code, msg string) {
+	st := &statuspb.Status{Code: int32(code), Message: msg}
+
+	var (
+		body        []byte
+		err         error
+		contentType string
+	)
+	if requestIsJSON(r) {
+		contentType = contentTypeJSON
+		body, err = protojson.Marshal(st)
+	} else {
+		contentType = contentTypeProto
+		body, err = proto.Marshal(st)
+	}
+	if err != nil {
+		// Marshaling a two-field Status cannot realistically fail; fall back to
+		// a bare status code rather than pretend to send a body.
+		logWriteFailure(r, err)
+		w.WriteHeader(status)
+		return
+	}
+
+	w.Header().Set("Content-Type", contentType)
+	w.WriteHeader(status)
+	if _, err := w.Write(body); err != nil {
+		logWriteFailure(r, err)
+	}
+}
+
 // readBody reads the request body with a hard size cap. On overflow,
 // http.MaxBytesReader makes io.ReadAll return an error, which the caller maps to
 // 400.
@@ -117,32 +169,30 @@ func decodeRequest(r *http.Request, body []byte, msg proto.Message) error {
 // readAndDecode runs the prologue shared by all three signals: method check,
 // bounded body read, and encoding-aware unmarshal. It writes the error response
 // and logs the rejection itself; a false return means the caller must return
-// immediately.
-func (h *Handler) readAndDecode(w http.ResponseWriter, r *http.Request, msg proto.Message) bool {
+// immediately. The returned count is the body bytes read, so a later rejection
+// (e.g. a store failure) can log the request size instead of a bare 0.
+func (h *Handler) readAndDecode(w http.ResponseWriter, r *http.Request, msg proto.Message) (int, bool) {
 	if r.Method != http.MethodPost {
 		logReject(r, http.StatusMethodNotAllowed, "method", nil, 0)
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return false
+		writeError(w, r, http.StatusMethodNotAllowed, rpccode.Code_UNIMPLEMENTED, "method not allowed")
+		return 0, false
 	}
 
 	body, err := readBody(w, r)
 	defer r.Body.Close()
 	if err != nil {
 		logReject(r, http.StatusBadRequest, "read body", err, len(body))
-		http.Error(w, "read request body", http.StatusBadRequest)
-		return false
+		writeError(w, r, http.StatusBadRequest, rpccode.Code_INVALID_ARGUMENT, "read request body")
+		return len(body), false
 	}
 
 	if err := decodeRequest(r, body, msg); err != nil {
 		logReject(r, http.StatusBadRequest, "unmarshal", err, len(body))
-		w.WriteHeader(http.StatusBadRequest)
-		if _, werr := w.Write([]byte("unmarshal error")); werr != nil {
-			logWriteFailure(r, werr)
-		}
-		return false
+		writeError(w, r, http.StatusBadRequest, rpccode.Code_INVALID_ARGUMENT, "unmarshal error")
+		return len(body), false
 	}
 
-	return true
+	return len(body), true
 }
 
 // writeResponse marshals the empty export response in the request's encoding —
@@ -162,7 +212,7 @@ func (h *Handler) writeResponse(w http.ResponseWriter, r *http.Request, msg prot
 	}
 	if err != nil {
 		logReject(r, http.StatusInternalServerError, "marshal response", err, 0)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeError(w, r, http.StatusInternalServerError, rpccode.Code_INTERNAL, "marshal response")
 		return
 	}
 
@@ -184,14 +234,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleMetrics(w, r)
 	default:
 		logReject(r, http.StatusNotFound, "unknown route", nil, 0)
-		http.NotFound(w, r)
+		writeError(w, r, http.StatusNotFound, rpccode.Code_NOT_FOUND, "unknown route")
 	}
 }
 
 // handleTraces handles POST /v1/traces
 func (h *Handler) handleTraces(w http.ResponseWriter, r *http.Request) {
 	var req collectortracesv1.ExportTraceServiceRequest
-	if !h.readAndDecode(w, r, &req) {
+	read, ok := h.readAndDecode(w, r, &req)
+	if !ok {
 		return
 	}
 
@@ -199,8 +250,8 @@ func (h *Handler) handleTraces(w http.ResponseWriter, r *http.Request) {
 	for _, rs := range req.ResourceSpans {
 		for _, ss := range rs.ScopeSpans {
 			if err := h.store.InsertSpans(r.Context(), ss.Spans, rs.Resource, ss.Scope); err != nil {
-				logReject(r, http.StatusInternalServerError, "store insert", err, 0)
-				http.Error(w, err.Error(), http.StatusInternalServerError)
+				logReject(r, http.StatusInternalServerError, "store insert", err, read)
+				writeError(w, r, http.StatusInternalServerError, rpccode.Code_INTERNAL, "store insert")
 				return
 			}
 		}
@@ -212,7 +263,8 @@ func (h *Handler) handleTraces(w http.ResponseWriter, r *http.Request) {
 // handleLogs handles POST /v1/logs
 func (h *Handler) handleLogs(w http.ResponseWriter, r *http.Request) {
 	var req collectorlogsv1.ExportLogsServiceRequest
-	if !h.readAndDecode(w, r, &req) {
+	read, ok := h.readAndDecode(w, r, &req)
+	if !ok {
 		return
 	}
 
@@ -220,8 +272,8 @@ func (h *Handler) handleLogs(w http.ResponseWriter, r *http.Request) {
 	for _, rl := range req.ResourceLogs {
 		for _, sl := range rl.ScopeLogs {
 			if err := h.store.InsertLogs(r.Context(), sl.LogRecords, rl.Resource, sl.Scope); err != nil {
-				logReject(r, http.StatusInternalServerError, "store insert", err, 0)
-				http.Error(w, err.Error(), http.StatusInternalServerError)
+				logReject(r, http.StatusInternalServerError, "store insert", err, read)
+				writeError(w, r, http.StatusInternalServerError, rpccode.Code_INTERNAL, "store insert")
 				return
 			}
 		}
@@ -233,7 +285,8 @@ func (h *Handler) handleLogs(w http.ResponseWriter, r *http.Request) {
 // handleMetrics handles POST /v1/metrics
 func (h *Handler) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	var req collectormetricsv1.ExportMetricsServiceRequest
-	if !h.readAndDecode(w, r, &req) {
+	read, ok := h.readAndDecode(w, r, &req)
+	if !ok {
 		return
 	}
 
@@ -241,8 +294,8 @@ func (h *Handler) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	for _, rm := range req.ResourceMetrics {
 		for _, sm := range rm.ScopeMetrics {
 			if err := h.store.InsertMetrics(r.Context(), sm.Metrics, rm.Resource, sm.Scope); err != nil {
-				logReject(r, http.StatusInternalServerError, "store insert", err, 0)
-				http.Error(w, err.Error(), http.StatusInternalServerError)
+				logReject(r, http.StatusInternalServerError, "store insert", err, read)
+				writeError(w, r, http.StatusInternalServerError, rpccode.Code_INTERNAL, "store insert")
 				return
 			}
 		}

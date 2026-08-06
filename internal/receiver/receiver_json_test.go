@@ -6,10 +6,13 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/3rg0n/otelstore/internal/store"
+	statuspb "google.golang.org/genproto/googleapis/rpc/status"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
 	collectortracesv1 "go.opentelemetry.io/proto/otlp/collector/trace/v1"
@@ -100,9 +103,14 @@ func TestTraceIngestJSON(t *testing.T) {
 		t.Errorf("stored span name = %v, want json-span", got)
 	}
 
-	// A JSON client must get a JSON response, not protobuf.
+	// A JSON client must get a JSON response, not protobuf — and the body must
+	// really be JSON, not protobuf bytes under a JSON header.
 	if ct := w.Header().Get("Content-Type"); ct != "application/json" {
 		t.Errorf("response Content-Type = %q, want application/json", ct)
+	}
+	var resp collectortracesv1.ExportTraceServiceResponse
+	if err := protojson.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Errorf("response body is not a JSON ExportTraceServiceResponse: %v (body %q)", err, w.Body.String())
 	}
 }
 
@@ -333,23 +341,224 @@ func TestRejectionsAreLogged(t *testing.T) {
 }
 
 // TestSuccessPathStaysQuiet keeps the fix for #8 from becoming log spam: the ask
-// was that failures are never silent, not that every export prints a line.
+// was that failures are never silent, not that every export prints a line. Both
+// an empty export and one that actually stores a span must be quiet — checking
+// only the empty case would pass even if real exports became verbose.
 func TestSuccessPathStaysQuiet(t *testing.T) {
+	bodies := map[string]string{
+		"empty": `{"resourceSpans":[]}`,
+		"with a stored span": `{"resourceSpans":[{"scopeSpans":[{"spans":[{` +
+			`"traceId":"000102030405060708090a0b0c0d0e0f","spanId":"0102030405060708",` +
+			`"name":"quiet","startTimeUnixNano":"1000000000","endTimeUnixNano":"2000000000",` +
+			`"attributes":[{"key":"run_id","value":{"stringValue":"RQUIET"}}]}]}]}]}`,
+	}
+
+	for name, body := range bodies {
+		t.Run(name, func(t *testing.T) {
+			s, ctx := newTestStore(t)
+			h := NewHandler(s)
+
+			logged := captureLogs(t)
+
+			httpReq := httptest.NewRequest("POST", "/v1/traces", strings.NewReader(body))
+			httpReq.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, httpReq)
+
+			if w.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d (body %q)", w.Code, w.Body.String())
+			}
+			if out := logged(); out != "" {
+				t.Errorf("success path should be quiet, logged: %q", out)
+			}
+
+			// Confirm the "with a stored span" case really did store something,
+			// so the quiet assertion isn't vacuously about a no-op request.
+			if name != "empty" {
+				spans, _, err := s.QueryByKey(ctx, "run_id", "RQUIET", 10)
+				if err != nil {
+					t.Fatalf("QueryByKey: %v", err)
+				}
+				if len(spans) != 1 {
+					t.Fatalf("expected the span to be stored, got %d", len(spans))
+				}
+			}
+		})
+	}
+}
+
+// TestErrorResponsesMatchRequestEncoding covers the OTLP/HTTP requirement that
+// the server use the same Content-Type in the response as the request and that
+// 4xx/5xx bodies be a google.rpc.Status. Plain-text http.Error replies broke
+// both, for protobuf and JSON clients alike.
+func TestErrorResponsesMatchRequestEncoding(t *testing.T) {
+	s, _ := newTestStore(t)
+	h := NewHandler(s)
+
+	cases := []struct {
+		name       string
+		method     string
+		path       string
+		ct         string
+		body       string
+		wantStatus int
+	}{
+		{"json unmarshal", "POST", "/v1/traces", contentTypeJSON, `{"resourceSpans": [`, http.StatusBadRequest},
+		{"proto unmarshal", "POST", "/v1/traces", contentTypeProto, "not a protobuf", http.StatusBadRequest},
+		{"json wrong method", "GET", "/v1/traces", contentTypeJSON, "", http.StatusMethodNotAllowed},
+		{"proto wrong method", "GET", "/v1/traces", contentTypeProto, "", http.StatusMethodNotAllowed},
+		{"json unknown route", "POST", "/v1/nope", contentTypeJSON, "{}", http.StatusNotFound},
+		{"proto unknown route", "POST", "/v1/nope", contentTypeProto, "", http.StatusNotFound},
+		{"no content-type defaults to proto", "POST", "/v1/traces", "", "not a protobuf", http.StatusBadRequest},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			httpReq := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+			if tc.ct != "" {
+				httpReq.Header.Set("Content-Type", tc.ct)
+			}
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, httpReq)
+
+			if w.Code != tc.wantStatus {
+				t.Fatalf("status = %d, want %d", w.Code, tc.wantStatus)
+			}
+
+			wantCT := contentTypeProto
+			if tc.ct == contentTypeJSON {
+				wantCT = contentTypeJSON
+			}
+			if got := w.Header().Get("Content-Type"); got != wantCT {
+				t.Errorf("error response Content-Type = %q, want %q", got, wantCT)
+			}
+
+			// The body must decode as a google.rpc.Status in that encoding.
+			var st statuspb.Status
+			var err error
+			if wantCT == contentTypeJSON {
+				err = protojson.Unmarshal(w.Body.Bytes(), &st)
+			} else {
+				err = proto.Unmarshal(w.Body.Bytes(), &st)
+			}
+			if err != nil {
+				t.Fatalf("error body is not a %s google.rpc.Status: %v (body %q)", wantCT, err, w.Body.String())
+			}
+			if st.Message == "" {
+				t.Error("Status.Message is empty; the client learns nothing about the failure")
+			}
+		})
+	}
+}
+
+// TestErrorResponsesDoNotLeakInternals asserts the client-facing error body
+// carries a fixed reason, while the underlying error text (which can name
+// internal state, e.g. SQL constraints) goes only to the log.
+func TestErrorResponsesDoNotLeakInternals(t *testing.T) {
 	s, _ := newTestStore(t)
 	h := NewHandler(s)
 
 	logged := captureLogs(t)
 
-	httpReq := httptest.NewRequest("POST", "/v1/traces", strings.NewReader(`{"resourceSpans":[]}`))
-	httpReq.Header.Set("Content-Type", "application/json")
+	// An unknown field name would be discarded; a wrong-typed one makes protojson
+	// name the offending field in its error, which is exactly the kind of detail
+	// that must not reach the client.
+	httpReq := httptest.NewRequest("POST", "/v1/traces", strings.NewReader(`{"resourceSpans": "not-an-array"}`))
+	httpReq.Header.Set("Content-Type", contentTypeJSON)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, httpReq)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
+	var st statuspb.Status
+	if err := protojson.Unmarshal(w.Body.Bytes(), &st); err != nil {
+		t.Fatalf("error body is not a JSON Status: %v", err)
 	}
-	if out := logged(); out != "" {
-		t.Errorf("success path should be quiet, logged: %q", out)
+	if st.Message != "unmarshal error" {
+		t.Errorf("Status.Message = %q, want the fixed %q", st.Message, "unmarshal error")
+	}
+
+	out := logged()
+	// The decoder's detail — here the offending token from the payload — must be
+	// logged for diagnosis...
+	if !strings.Contains(out, "not-an-array") {
+		t.Errorf("decoder detail should be in the log, got %q", out)
+	}
+	// ...and must not be echoed back to the client.
+	if strings.Contains(w.Body.String(), "not-an-array") {
+		t.Errorf("decoder detail leaked to the client: %q", w.Body.String())
+	}
+}
+
+// TestSanitizeForLogNeutralizesUnicodeLineBreaks covers separators that Go's
+// logger treats as ordinary runes but log viewers and aggregators may render as
+// a line break, plus format characters usable to disguise a forged line.
+func TestSanitizeForLogNeutralizesUnicodeLineBreaks(t *testing.T) {
+	cases := map[string]string{
+		"line separator":      "a\u2028b",
+		"paragraph separator": "a\u2029b",
+		"zero width space":    "a\u200bb", // Cf
+		"rtl override":        "a\u202eb", // Cf
+		"CR":                  "a\rb",
+		"LF":                  "a\nb",
+		"DEL":                 "a\u007fb",
+	}
+
+	for name, in := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := sanitizeForLog(in)
+			if got != "a_b" {
+				t.Errorf("sanitizeForLog(%q) = %q, want %q", in, got, "a_b")
+			}
+		})
+	}
+
+	// Ordinary text, including non-ASCII letters, must survive unchanged.
+	for _, in := range []string{"application/json", "/v1/traces", "café", "日本語"} {
+		if got := sanitizeForLog(in); got != in {
+			t.Errorf("sanitizeForLog(%q) = %q, want it unchanged", in, got)
+		}
+	}
+}
+
+// TestRejectedBodySizeIsLogged asserts the log reports how many body bytes were
+// read, including on a store failure — a bare 0 there would misreport a large
+// request as empty.
+func TestRejectedBodySizeIsLogged(t *testing.T) {
+	s, _ := newTestStore(t)
+	h := NewHandler(s)
+
+	// A duplicate (trace_id, span_id) violates the store's UNIQUE constraint,
+	// which is the simplest way to drive a real store-insert failure.
+	body := `{"resourceSpans":[{"scopeSpans":[{"spans":[` +
+		`{"traceId":"0f0e0d0c0b0a09080706050403020100","spanId":"0807060504030201",` +
+		`"name":"dup","startTimeUnixNano":"1000000000","endTimeUnixNano":"2000000000",` +
+		`"attributes":[{"key":"run_id","value":{"stringValue":"RDUP"}}]},` +
+		`{"traceId":"0f0e0d0c0b0a09080706050403020100","spanId":"0807060504030201",` +
+		`"name":"dup","startTimeUnixNano":"1000000000","endTimeUnixNano":"2000000000",` +
+		`"attributes":[{"key":"run_id","value":{"stringValue":"RDUP"}}]}` +
+		`]}]}]}`
+
+	logged := captureLogs(t)
+
+	httpReq := httptest.NewRequest("POST", "/v1/traces", strings.NewReader(body))
+	httpReq.Header.Set("Content-Type", contentTypeJSON)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httpReq)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected a store-insert failure (500), got %d (body %q)", w.Code, w.Body.String())
+	}
+
+	out := logged()
+	if !strings.Contains(out, "store insert") {
+		t.Fatalf("store failure not logged: %q", out)
+	}
+	if strings.Contains(out, "read=0") {
+		t.Errorf("store-insert rejection logged read=0 for a %d-byte body: %q", len(body), out)
+	}
+
+	// Confirm the reported count is the real body length.
+	if !strings.Contains(out, "read="+strconv.Itoa(len(body))) {
+		t.Errorf("log should report read=%d, got %q", len(body), out)
 	}
 }
 

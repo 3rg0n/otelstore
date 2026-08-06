@@ -17,6 +17,13 @@ semantic versioning once released.
   e.g. the VS Code GitHub Copilot Chat extension — previously got a 400 on every
   export and stored nothing. `README.md` and `docs/usage.md` updated: they
   advertised `HTTP/protobuf` only.
+- **Spec-conformant ingest error responses.** OTLP/HTTP requires that `4xx`/`5xx`
+  bodies be a `google.rpc.Status` and that the response reuse the request's
+  `Content-Type`. Ingest previously answered every failure with a plain-text
+  `http.Error`, which was non-conformant for protobuf *and* JSON clients; all
+  failure paths now emit a `Status` in the request's encoding. The body carries a
+  fixed reason while the underlying error text goes only to the log, so a client
+  can't use ingest failures to probe internals (e.g. SQL constraint names).
 
 ### Fixed — 2026-08-05 (silent ingest rejections)
 
@@ -28,6 +35,13 @@ semantic versioning once released.
   "healthy process, empty database" undiagnosable. Log fields are sanitized
   against log injection (CWE-117), matching the auth middleware. The success
   path stays quiet — no line per export.
+- Ingest log lines report `read=<n>` (body bytes actually consumed) on every
+  rejection, including store failures, which previously logged a hardcoded `0`
+  and so misreported a large request as empty.
+- `sanitizeForLog` in the receiver additionally strips Unicode line/paragraph
+  separators (U+2028/U+2029) and format characters such as bidi overrides. Go's
+  logger treats these as ordinary runes, but log viewers and aggregators may
+  render them as a line break or use them to disguise a forged line.
 
 ### Added — 2026-07-21 (threat-model hardening backlog)
 
