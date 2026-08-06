@@ -45,7 +45,8 @@ translator in front — that's the source's quirk, not otelstore's job.
 Early MVP — usable locally today; not a hardened multi-tenant service.
 
 **Works now**
-- OTLP ingest: traces, logs, metrics — over gRPC (`:4317`) and HTTP/protobuf (`:4318`)
+- OTLP ingest: traces, logs, metrics — over gRPC (`:4317`) and HTTP (`:4318`,
+  protobuf or JSON on the same port)
 - Query: REST (`:4319`) and MCP tools (`:4320`) for agent self-remediation
 - Single-file storage (pure-Go SQLite) with optional time-based retention
 - Optional bearer-token auth on every endpoint
@@ -94,7 +95,7 @@ curl "localhost:4319/v1/metrics?name=claude_code.cost.usage"
 | Port  | Purpose                    | Protocol            |
 |-------|----------------------------|---------------------|
 | 4317  | OTLP ingest                | gRPC                |
-| 4318  | OTLP ingest                | HTTP/protobuf       |
+| 4318  | OTLP ingest                | HTTP/protobuf + HTTP/JSON |
 | 4319  | Query API                  | HTTP/REST (JSON)    |
 | 4320  | Query for agents           | MCP (streamable HTTP)|
 

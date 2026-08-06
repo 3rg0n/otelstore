@@ -6,6 +6,43 @@ semantic versioning once released.
 
 ## [Unreleased]
 
+### Added — 2026-08-05 (OTLP/JSON ingest)
+
+- **HTTP ingest accepts OTLP/JSON** (#7). `:4318` now decodes both encodings on
+  the same port, per the OTLP spec: `Content-Type: application/json` is decoded
+  with `protojson` (`DiscardUnknown: true`, so exporters emitting fields newer
+  than our pinned proto aren't turned into 400s); anything else, including an
+  absent header, stays binary protobuf. Responses are returned in the request's
+  encoding rather than always protobuf. Real clients that only speak OTLP/JSON —
+  e.g. the VS Code GitHub Copilot Chat extension — previously got a 400 on every
+  export and stored nothing. `README.md` and `docs/usage.md` updated: they
+  advertised `HTTP/protobuf` only.
+- **Spec-conformant ingest error responses.** OTLP/HTTP requires that `4xx`/`5xx`
+  bodies be a `google.rpc.Status` and that the response reuse the request's
+  `Content-Type`. Ingest previously answered every failure with a plain-text
+  `http.Error`, which was non-conformant for protobuf *and* JSON clients; all
+  failure paths now emit a `Status` in the request's encoding. The body carries a
+  fixed reason while the underlying error text goes only to the log, so a client
+  can't use ingest failures to probe internals (e.g. SQL constraint names).
+
+### Fixed — 2026-08-05 (silent ingest rejections)
+
+- **HTTP ingest rejections are no longer silent** (#8). Every non-2xx ingest
+  outcome — bad method, oversized/unreadable body, unmarshal failure, unknown
+  route, store-insert error, response marshal/write failure — now logs one line
+  with method, path, status, stage, `Content-Type`, body length, and error. A
+  receiver that was up but refusing 100% of traffic used to log nothing, making
+  "healthy process, empty database" undiagnosable. Log fields are sanitized
+  against log injection (CWE-117), matching the auth middleware. The success
+  path stays quiet — no line per export.
+- Ingest log lines report `read=<n>` (body bytes actually consumed) on every
+  rejection, including store failures, which previously logged a hardcoded `0`
+  and so misreported a large request as empty.
+- `sanitizeForLog` in the receiver additionally strips Unicode line/paragraph
+  separators (U+2028/U+2029) and format characters such as bidi overrides. Go's
+  logger treats these as ordinary runes, but log viewers and aggregators may
+  render them as a line break or use them to disguise a forged line.
+
 ### Added — 2026-07-21 (threat-model hardening backlog)
 
 - **Audit logging:** auth failures are now logged (HTTP middleware + gRPC
