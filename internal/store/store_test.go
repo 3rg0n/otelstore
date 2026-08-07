@@ -454,9 +454,9 @@ func TestQueryLogsByEventNameAndSeverity(t *testing.T) {
 		t.Fatalf("InitSchema: %v", err)
 	}
 
-	insertEvent(t, st, ctx, "api_error", 17, 100, "J1")     // error severity
-	insertEvent(t, st, ctx, "user_prompt", 9, 200, "J1")    // info severity
-	insertEvent(t, st, ctx, "api_error", 17, 300, "J2")     // error, other job
+	insertEvent(t, st, ctx, "api_error", 17, 100, "J1")  // error severity
+	insertEvent(t, st, ctx, "user_prompt", 9, 200, "J1") // info severity
+	insertEvent(t, st, ctx, "api_error", 17, 300, "J2")  // error, other job
 
 	// Filter by event.name only.
 	logs, err := st.QueryLogs(ctx, "api_error", 0, 1000)

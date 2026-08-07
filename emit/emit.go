@@ -37,16 +37,16 @@ const (
 
 // GenAI decoration keys — centralized so semconv version bumps edit one spot.
 const (
-	AttrGenAIOperationName    = "gen_ai.operation.name"
-	AttrGenAIWorkflowName     = "gen_ai.workflow.name"
-	AttrGenAIConversationID   = "gen_ai.conversation.id"
-	AttrGenAIAgentID          = "gen_ai.agent.id"
-	AttrGenAIAgentName        = "gen_ai.agent.name"
-	AttrGenAIAgentVersion     = "gen_ai.agent.version"
-	AttrGenAIToolName         = "gen_ai.tool.name"
-	AttrGenAIToolCallID       = "gen_ai.tool.call.id"
-	AttrGenAIProviderName     = "gen_ai.provider.name"
-	AttrGenAIRequestModel     = "gen_ai.request.model"
+	AttrGenAIOperationName  = "gen_ai.operation.name"
+	AttrGenAIWorkflowName   = "gen_ai.workflow.name"
+	AttrGenAIConversationID = "gen_ai.conversation.id"
+	AttrGenAIAgentID        = "gen_ai.agent.id"
+	AttrGenAIAgentName      = "gen_ai.agent.name"
+	AttrGenAIAgentVersion   = "gen_ai.agent.version"
+	AttrGenAIToolName       = "gen_ai.tool.name"
+	AttrGenAIToolCallID     = "gen_ai.tool.call.id"
+	AttrGenAIProviderName   = "gen_ai.provider.name"
+	AttrGenAIRequestModel   = "gen_ai.request.model"
 )
 
 // getTracer returns the package-level tracer.

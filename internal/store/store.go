@@ -10,8 +10,8 @@ import (
 	_ "modernc.org/sqlite"
 
 	otlpcommonv1 "go.opentelemetry.io/proto/otlp/common/v1"
-	otlpmetricsv1 "go.opentelemetry.io/proto/otlp/metrics/v1"
 	otplogsv1 "go.opentelemetry.io/proto/otlp/logs/v1"
+	otlpmetricsv1 "go.opentelemetry.io/proto/otlp/metrics/v1"
 	otlpresourcev1 "go.opentelemetry.io/proto/otlp/resource/v1"
 	otlptracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
 )

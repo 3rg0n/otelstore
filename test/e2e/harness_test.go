@@ -24,10 +24,10 @@ import (
 	"testing"
 	"time"
 
-	kv1 "go.opentelemetry.io/proto/otlp/common/v1"
 	clogsv1 "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	cmetricsv1 "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	ctracesv1 "go.opentelemetry.io/proto/otlp/collector/trace/v1"
+	kv1 "go.opentelemetry.io/proto/otlp/common/v1"
 	logsv1 "go.opentelemetry.io/proto/otlp/logs/v1"
 	metricsv1 "go.opentelemetry.io/proto/otlp/metrics/v1"
 	resourcev1 "go.opentelemetry.io/proto/otlp/resource/v1"

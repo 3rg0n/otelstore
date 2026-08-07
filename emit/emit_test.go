@@ -7,9 +7,9 @@ import (
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // setup creates an in-memory span recorder and sets the global tracer provider.
@@ -264,8 +264,8 @@ func TestStartModelSpan(t *testing.T) {
 				WithRequestModel("claude-3-opus"),
 			},
 			expectedAttrs: map[string]interface{}{
-				AttrRunID:             "run-555",
-				AttrJobID:             "job-666",
+				AttrRunID:              "run-555",
+				AttrJobID:              "job-666",
 				AttrGenAIOperationName: OpModelCall,
 				AttrGenAIProviderName:  "anthropic",
 				AttrGenAIRequestModel:  "claude-3-opus",
@@ -277,8 +277,8 @@ func TestStartModelSpan(t *testing.T) {
 			jobID: "job-888",
 			opts:  nil,
 			expectedAttrs: map[string]interface{}{
-				AttrRunID:             "run-777",
-				AttrJobID:             "job-888",
+				AttrRunID:              "run-777",
+				AttrJobID:              "job-888",
 				AttrGenAIOperationName: OpModelCall,
 			},
 		},

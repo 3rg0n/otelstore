@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/3rg0n/otelstore/internal/store"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // QueryJobInput is the input for the query_job tool.
@@ -39,7 +39,7 @@ type GetTraceInput struct {
 
 // GetTraceOutput is the output for the get_trace tool.
 type GetTraceOutput struct {
-	TraceID string         `json:"trace_id"`
+	TraceID string           `json:"trace_id"`
 	Spans   []map[string]any `json:"spans"`
 }
 
