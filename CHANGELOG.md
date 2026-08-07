@@ -20,10 +20,13 @@ semantic versioning once released.
     new `internal/redact` package is a value `main.go` constructs and hands to the
     store, which applies it without interpreting any key. No default deny-list, and
     no `gen_ai.*` special-casing in `internal/store`.
-  - Every insert path goes through one `Store.mergedAttrs` choke point, so a new
-    signal cannot accidentally skip redaction. Redaction runs *before*
-    `run_id`/`job_id` are promoted to indexed columns — extracting first would copy
-    an unredacted value into a column and defeat the redaction.
+  - Every record-level insert path goes through one `Store.mergedAttrs` choke
+    point, so a new signal cannot accidentally skip redaction. Span *events* carry
+    a second, nested attribute map that is not merged with resource/scope, so
+    `InsertSpans` redacts those separately — otherwise an exporter putting a prompt
+    on a span event rather than the span would bypass redaction. Redaction runs
+    *before* `run_id`/`job_id` are promoted to indexed columns — extracting first
+    would copy an unredacted value into a column and defeat the redaction.
   - Default behaviour is unchanged: with no rules configured, nothing is altered.
 - **gRPC per-connection bounds** (threat-model #15, CWE-400). `MaxRecvMsgSize`
   caps one message, but grpc-go defaults `MaxConcurrentStreams` to unlimited and
@@ -49,7 +52,9 @@ a remediation-status table.
   database, so the second connection the pool opened saw no schema. Sequential use
   never noticed — the pool hands back the one connection — but concurrent ingest
   did, and `:memory:` is the default. The in-memory pool is now pinned to one
-  connection. Found by the new gRPC concurrency test, not by the threat model.
+  connection, so concurrent writers serialize instead of failing; SQLite already
+  serializes writes, and file-backed stores are unaffected. Found by the new gRPC
+  concurrency test, not by the threat model.
 
 ### Added — 2026-08-07 (formatting gate)
 

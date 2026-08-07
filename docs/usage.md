@@ -152,8 +152,9 @@ otelstore -db-path ./telemetry.db   -redact-attrs "authorization,api.key,gen_ai.
 - Redaction is **at ingest**, not at query time — the value never reaches the
   SQLite file, so it cannot be recovered from a backup or by reading the DB
   directly.
-- It applies to **all three signals** (spans, logs, metric data points) and to
-  attributes merged in from resource and scope, not just record-level ones.
+- It applies to **all three signals** (spans, logs, metric data points), to
+  attributes merged in from resource and scope rather than only record-level
+  ones, and to **span event** attributes.
 - It is **opt-in with no default list.** otelstore's store never interprets
   attribute names — that genericness is deliberate (see `CONTRIBUTING.md`) — so
   which keys are sensitive is a decision only you can make. With no rules set,

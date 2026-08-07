@@ -267,8 +267,10 @@ func mergeAttributes(
 }
 
 // mergedAttrs merges resource/scope/record attributes and applies redaction.
-// Every insert path goes through it, so a new signal cannot accidentally skip
-// redaction by calling mergeAttributes directly.
+// Every record-level insert path goes through it, so a new signal cannot
+// accidentally skip redaction by calling mergeAttributes directly. Span *events*
+// carry their own nested attribute map that is not merged with resource/scope;
+// InsertSpans applies the redactor to those separately.
 //
 // Redaction runs before extractMetadata deliberately: run_id/job_id are promoted
 // to indexed columns, so extracting first would copy an unredacted value into a
@@ -359,6 +361,12 @@ func (s *Store) InsertSpans(
 				for _, kv := range evt.Attributes {
 					eventAttrs[kv.Key] = convertAnyValue(kv.Value)
 				}
+				// Event attributes are a second, nested attribute map on the same
+				// span, so they need redaction too — they are not merged with
+				// resource/scope, hence the direct Apply rather than mergedAttrs.
+				// An exporter that puts a prompt on a span event rather than the
+				// span would otherwise bypass redaction entirely.
+				s.redactor.Apply(eventAttrs)
 				events[i] = map[string]any{
 					"name":       evt.Name,
 					"time_ns":    evt.TimeUnixNano,

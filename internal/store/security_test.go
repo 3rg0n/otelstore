@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/3rg0n/otelstore/internal/redact"
 	otlpcommonv1 "go.opentelemetry.io/proto/otlp/common/v1"
@@ -407,5 +408,145 @@ func TestConcurrentInsertsOnMemoryStore(t *testing.T) {
 	}
 	if len(spans) != workers {
 		t.Errorf("stored %d spans, want %d — writes landed in separate in-memory databases", len(spans), workers)
+	}
+}
+
+// TestRedactionCoversSpanEventAttributes closes a leak found in review: span
+// events carry their own nested attribute map, built separately from the merged
+// record attributes, so it does not pass through mergedAttrs. An exporter that
+// puts a prompt or an auth header on a span event rather than on the span
+// bypassed redaction entirely.
+func TestRedactionCoversSpanEventAttributes(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(MemoryPath)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer st.Close()
+	if err := st.InitSchema(ctx); err != nil {
+		t.Fatalf("InitSchema: %v", err)
+	}
+	st.SetRedactor(redact.New([]string{"authorization", "gen_ai.prompt*"}))
+
+	span := &otlptracev1.Span{
+		TraceId:           []byte{7, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},
+		SpanId:            []byte{1, 2, 3, 4, 5, 6, 7, 8},
+		Name:              "chat",
+		StartTimeUnixNano: 1,
+		EndTimeUnixNano:   2,
+		Attributes:        []*otlpcommonv1.KeyValue{strAttr("run_id", "RE")},
+		Events: []*otlptracev1.Span_Event{{
+			Name:         "gen_ai.user.message",
+			TimeUnixNano: 1,
+			Attributes: []*otlpcommonv1.KeyValue{
+				strAttr("authorization", secret),
+				strAttr("gen_ai.prompt.0.content", "private user text"),
+				strAttr("gen_ai.response.text", "keep me"),
+			},
+		}},
+	}
+	if err := st.InsertSpans(ctx, []*otlptracev1.Span{span}, nil, nil); err != nil {
+		t.Fatalf("InsertSpans: %v", err)
+	}
+
+	var eventsJSON string
+	if err := st.db.QueryRowContext(ctx, "SELECT events FROM spans").Scan(&eventsJSON); err != nil {
+		t.Fatalf("select events: %v", err)
+	}
+	if strings.Contains(eventsJSON, secret) {
+		t.Errorf("the secret was persisted in span event attributes: %s", eventsJSON)
+	}
+	if !strings.Contains(eventsJSON, redact.Placeholder) {
+		t.Errorf("no %s marker in event attributes: %s", redact.Placeholder, eventsJSON)
+	}
+	// Unconfigured event attributes must survive, and the event name itself is
+	// untouched — redaction covers values, not names.
+	if !strings.Contains(eventsJSON, "keep me") {
+		t.Errorf("redaction removed an unconfigured event attribute: %s", eventsJSON)
+	}
+	if !strings.Contains(eventsJSON, "gen_ai.user.message") {
+		t.Errorf("event name was altered: %s", eventsJSON)
+	}
+}
+
+// TestConcurrentMixedOpsOnMemoryStore guards the risk that pinning the in-memory
+// pool to one connection introduces: if any code path held a rows cursor open
+// while issuing a second query, a single-connection pool would deadlock rather
+// than merely serialize. Ingest, queries, and both retention sweeps run
+// concurrently; the test fails by timing out if that happens.
+func TestConcurrentMixedOpsOnMemoryStore(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(MemoryPath)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer st.Close()
+	if err := st.InitSchema(ctx); err != nil {
+		t.Fatalf("InitSchema: %v", err)
+	}
+
+	const rounds = 25
+	done := make(chan error, 4)
+
+	go func() {
+		for i := 0; i < rounds; i++ {
+			span := &otlptracev1.Span{
+				TraceId:           []byte{0xC0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},
+				SpanId:            []byte{byte(i), byte(i >> 8), 0, 0, 0, 0, 0, 2},
+				Name:              "s",
+				StartTimeUnixNano: uint64(i + 1),
+				EndTimeUnixNano:   uint64(i + 2),
+				Attributes:        []*otlpcommonv1.KeyValue{strAttr("run_id", "RM")},
+			}
+			if err := st.InsertSpans(ctx, []*otlptracev1.Span{span}, nil, nil); err != nil {
+				done <- err
+				return
+			}
+		}
+		done <- nil
+	}()
+	go func() {
+		for i := 0; i < rounds; i++ {
+			if _, _, err := st.QueryByKey(ctx, "run_id", "RM", 100); err != nil {
+				done <- err
+				return
+			}
+			if _, err := st.GetTrace(ctx, "c00102030405060708090a0b0c0d0e0f"); err != nil {
+				done <- err
+				return
+			}
+		}
+		done <- nil
+	}()
+	go func() {
+		for i := 0; i < rounds; i++ {
+			// Cutoff of 1 so the sweeper does real DELETE work against the rows
+			// the ingest goroutine is writing.
+			if _, err := st.DeleteBefore(ctx, 1); err != nil {
+				done <- err
+				return
+			}
+		}
+		done <- nil
+	}()
+	go func() {
+		for i := 0; i < rounds; i++ {
+			if _, err := st.EnforceMaxSize(ctx, 1<<20); err != nil {
+				done <- err
+				return
+			}
+		}
+		done <- nil
+	}()
+
+	for i := 0; i < 4; i++ {
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("concurrent op failed: %v", err)
+			}
+		case <-time.After(30 * time.Second):
+			t.Fatal("timed out: the single-connection in-memory pool deadlocked")
+		}
 	}
 }

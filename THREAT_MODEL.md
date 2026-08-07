@@ -81,7 +81,7 @@ read it as history, not as a description of `main`.
 | 7 | Fixed | `-auth-token-file` / `OTELSTORE_AUTH_TOKEN_FILE` |
 | 8 | Fixed | startup warning on non-loopback bind with auth disabled |
 | 9 | Fixed | `release.yml` `contents:write` scoped to the release job |
-| 10 | Fixed | `internal/redact` + `-redact-attrs`; applied at ingest via `Store.mergedAttrs` |
+| 10 | Fixed | `internal/redact` + `-redact-attrs`; applied at ingest via `Store.mergedAttrs` (+ span events) |
 | 11 | Fixed | MCP startup line states auth status |
 | 12 | Fixed | CycloneDX SBOM attached to releases |
 | 13 | Fixed | `.github/dependabot.yml` (gomod, cargo, actions) |
