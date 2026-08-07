@@ -108,8 +108,8 @@ func buildBinary(t *testing.T) string {
 
 // launch starts the binary on the given ports with auth + a file-backed DB and
 // waits until the query port accepts connections. dbPath lets a restart reuse
-// the same file.
-func launch(t *testing.T, bin, dbPath string) *instance {
+// the same file; extraArgs appends further flags (e.g. -redact-attrs).
+func launch(t *testing.T, bin, dbPath string, extraArgs ...string) *instance {
 	t.Helper()
 	inst := &instance{
 		grpcAddr:  freePort(t),
@@ -120,14 +120,15 @@ func launch(t *testing.T, bin, dbPath string) *instance {
 		logBuf:    &bytes.Buffer{},
 	}
 
-	inst.proc = exec.Command(bin,
+	args := []string{
 		"-db-path", dbPath,
 		"-grpc-port", inst.grpcAddr,
 		"-ingest-port", inst.httpAddr,
 		"-query-port", inst.queryAddr,
 		"-mcp-addr", inst.mcpAddr,
 		"-auth-token", authToken,
-	)
+	}
+	inst.proc = exec.Command(bin, append(args, extraArgs...)...)
 	inst.proc.Stdout = inst.logBuf
 	inst.proc.Stderr = inst.logBuf
 	if err := inst.proc.Start(); err != nil {
@@ -254,6 +255,31 @@ func sendLogHTTP(t *testing.T, httpAddr, token, runID, jobID, body string) (int,
 	}
 	defer resp.Body.Close()
 	return resp.StatusCode, nil
+}
+
+// sendTraceWithAttrsGRPC sends one span carrying arbitrary extra attributes, for
+// tests that care about attribute handling (redaction) rather than span shape.
+func sendTraceWithAttrsGRPC(t *testing.T, conn *grpc.ClientConn, ctx context.Context, traceID []byte, runID, jobID string, extra ...*kv1.KeyValue) error {
+	t.Helper()
+	cl := ctracesv1.NewTraceServiceClient(conn)
+	now := uint64(time.Now().UnixNano())
+	attrs := append([]*kv1.KeyValue{strAttr("run_id", runID), strAttr("job_id", jobID)}, extra...)
+	_, err := cl.Export(ctx, &ctracesv1.ExportTraceServiceRequest{
+		ResourceSpans: []*tracesv1.ResourceSpans{{
+			Resource: &resourcev1.Resource{},
+			ScopeSpans: []*tracesv1.ScopeSpans{{
+				Spans: []*tracesv1.Span{{
+					TraceId:           traceID,
+					SpanId:            []byte{8, 7, 6, 5, 4, 3, 2, 1},
+					Name:              "invoke_agent",
+					StartTimeUnixNano: now,
+					EndTimeUnixNano:   now + 1000,
+					Attributes:        attrs,
+				}},
+			}},
+		}},
+	})
+	return err
 }
 
 func strAttr(k, v string) *kv1.KeyValue {

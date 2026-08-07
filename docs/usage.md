@@ -131,6 +131,44 @@ store, and they can be combined:
 A single background sweeper applies whichever limits are set. Suitable for a
 long-running local daemon so the SQLite file stays bounded.
 
+## Redacting sensitive attributes
+
+Attributes are stored verbatim as JSON, and telemetry legitimately carries
+secrets and PII in them — `Authorization` headers, prompts, user identifiers. The
+database file usually outlives the incident it was opened for, so
+`-redact-attrs` (or `OTELSTORE_REDACT_ATTRS`) replaces chosen values with
+`[REDACTED]` at ingest, before anything is written:
+
+```sh
+otelstore -db-path ./telemetry.db   -redact-attrs "authorization,api.key,gen_ai.prompt*"
+```
+
+- A rule is either an **exact key** (`authorization`) or a **prefix glob** ending
+  in `*` (`gen_ai.prompt*`, matching `gen_ai.prompt.0.content` and anything else
+  under that prefix). Matching is case-insensitive. A bare `*` redacts every
+  attribute.
+- The **key is kept**; only the value is replaced. A reader can tell an attribute
+  was present and withheld from one that was never emitted.
+- Redaction is **at ingest**, not at query time — the value never reaches the
+  SQLite file, so it cannot be recovered from a backup or by reading the DB
+  directly.
+- It applies to **all three signals** (spans, logs, metric data points) and to
+  attributes merged in from resource and scope, not just record-level ones.
+- It is **opt-in with no default list.** otelstore's store never interprets
+  attribute names — that genericness is deliberate (see `CONTRIBUTING.md`) — so
+  which keys are sensitive is a decision only you can make. With no rules set,
+  nothing is altered.
+- Redacting `run_id` or `job_id` also redacts the **indexed column**, not just
+  the JSON, which is usually what you want if the correlation key itself names a
+  tenant. It does mean those records are no longer queryable by that key.
+
+The startup log states what is being redacted, e.g.
+`Attribute redaction enabled for 3 key rule(s): authorization, api.key,
+gen_ai.prompt*`.
+
+Redaction only covers attribute *values*. A secret pasted into a span name, a log
+body, or an event name is still stored — keep those out at the emitter.
+
 ## Metrics support notes
 
 Gauge and Sum metric types are ingested (each data point stored with its

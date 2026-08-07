@@ -6,6 +6,51 @@ semantic versioning once released.
 
 ## [Unreleased]
 
+### Added — 2026-08-07 (attribute redaction; threat-model backlog closed)
+
+- **`-redact-attrs` / `OTELSTORE_REDACT_ATTRS`: opt-in attribute redaction at
+  ingest** (threat-model #10, CWE-312). Telemetry legitimately carries secrets and
+  PII in attribute values — `Authorization` headers, prompts, user identifiers —
+  and otelstore persists attributes verbatim, so the database file outlives the
+  incident it was opened for. A comma-separated list of exact keys or prefix globs
+  (`authorization,gen_ai.prompt*`, case-insensitive) replaces matching values with
+  `[REDACTED]` before anything is written, so a redacted value never reaches disk.
+  The key is kept so a reader can tell "withheld" from "never emitted".
+  - **The store stays generic.** Rule names live entirely in operator config; the
+    new `internal/redact` package is a value `main.go` constructs and hands to the
+    store, which applies it without interpreting any key. No default deny-list, and
+    no `gen_ai.*` special-casing in `internal/store`.
+  - Every insert path goes through one `Store.mergedAttrs` choke point, so a new
+    signal cannot accidentally skip redaction. Redaction runs *before*
+    `run_id`/`job_id` are promoted to indexed columns — extracting first would copy
+    an unredacted value into a column and defeat the redaction.
+  - Default behaviour is unchanged: with no rules configured, nothing is altered.
+- **gRPC per-connection bounds** (threat-model #15, CWE-400). `MaxRecvMsgSize`
+  caps one message, but grpc-go defaults `MaxConcurrentStreams` to unlimited and
+  `MaxConnectionIdle` to infinity, so a client could still pin memory with many
+  streams or idle connections. Now `MaxConcurrentStreams: 256`,
+  `MaxConnectionIdle: 5m`, and keepalive enforcement (`MinTime: 30s`,
+  `PermitWithoutStream: true` so an idle-but-healthy OTLP exporter isn't torn
+  down). Generous enough not to constrain a real exporter.
+- **`-db-path` validation** (threat-model #14, CWE-427). `modernc.org/sqlite`
+  accepts URI-form paths, so `file:x?_pragma=...` in `-db-path` could reconfigure
+  the database engine through what is documented as a plain filename. `:memory:`
+  and plain paths are accepted (and `filepath.Clean`ed); a `file:` prefix or an
+  embedded `?` is rejected. Defense-in-depth for a launch config that is less
+  trusted than the operator — `-db-path` is not attacker-facing input.
+
+With these, **all 16 MAESTRO findings are remediated**; `THREAT_MODEL.md` carries
+a remediation-status table.
+
+### Fixed — 2026-08-07 (concurrent ingest on the default in-memory store)
+
+- **Concurrent ingest against `-db-path :memory:` failed with `no such table:
+  spans`.** Each connection to a plain `:memory:` DSN gets its own private
+  database, so the second connection the pool opened saw no schema. Sequential use
+  never noticed — the pool hands back the one connection — but concurrent ingest
+  did, and `:memory:` is the default. The in-memory pool is now pinned to one
+  connection. Found by the new gRPC concurrency test, not by the threat model.
+
 ### Added — 2026-08-07 (formatting gate)
 
 - **CI fails on unformatted code.** The `build · vet · test` job now runs

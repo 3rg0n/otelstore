@@ -3,6 +3,7 @@ package grpcreceiver
 import (
 	"context"
 	"log"
+	"time"
 
 	"github.com/3rg0n/otelstore/internal/auth"
 	"github.com/3rg0n/otelstore/internal/store"
@@ -11,6 +12,7 @@ import (
 	collectortracesv1 "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
@@ -135,11 +137,36 @@ func checkAuth(ctx context.Context, authToken string) error {
 // maxRecvMsgBytes caps a single gRPC OTLP message to bound per-message memory.
 const maxRecvMsgBytes = 64 << 20 // 64 MiB
 
+// Per-connection bounds. MaxRecvMsgSize alone caps one message; without these a
+// client can still pin memory by opening many concurrent streams or holding
+// idle connections open, because grpc-go defaults both to unbounded
+// (MaxConcurrentStreams: unlimited, MaxConnectionIdle: infinity). Generous
+// enough not to constrain a real OTLP exporter — an SDK opens one connection
+// and a handful of streams — while denying the pathological case.
+const (
+	maxConcurrentStreams = 256
+	maxConnectionIdle    = 5 * time.Minute
+	// Clients pinging more often than this get GOAWAY, bounding keepalive-flood
+	// cost. The grpc-go client default is well above it.
+	minClientPingInterval = 30 * time.Second
+)
+
 // NewGRPCServer creates and registers a gRPC server with all OTLP services.
 func NewGRPCServer(s *store.Store, authToken string) *grpc.Server {
 	grpcSrv := grpc.NewServer(
 		grpc.UnaryInterceptor(makeAuthInterceptor(authToken)),
 		grpc.MaxRecvMsgSize(maxRecvMsgBytes),
+		grpc.MaxConcurrentStreams(maxConcurrentStreams),
+		grpc.KeepaliveParams(keepalive.ServerParameters{
+			MaxConnectionIdle: maxConnectionIdle,
+		}),
+		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+			MinTime: minClientPingInterval,
+			// An OTLP exporter with nothing to send has no active stream;
+			// allowing its keepalive avoids tearing down an idle-but-healthy
+			// exporter connection.
+			PermitWithoutStream: true,
+		}),
 	)
 	collectortracesv1.RegisterTraceServiceServer(grpcSrv, NewTraceServer(s, authToken))
 	collectorlogsv1.RegisterLogsServiceServer(grpcSrv, NewLogsServer(s, authToken))
