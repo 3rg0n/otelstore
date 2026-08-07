@@ -10,12 +10,12 @@ import (
 	"github.com/3rg0n/otelstore/internal/store"
 	"google.golang.org/protobuf/proto"
 
-	otlpcommonv1 "go.opentelemetry.io/proto/otlp/common/v1"
-	collectortracesv1 "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	collectorlogsv1 "go.opentelemetry.io/proto/otlp/collector/logs/v1"
+	collectortracesv1 "go.opentelemetry.io/proto/otlp/collector/trace/v1"
+	otlpcommonv1 "go.opentelemetry.io/proto/otlp/common/v1"
+	otplogsv1 "go.opentelemetry.io/proto/otlp/logs/v1"
 	otlpresourcev1 "go.opentelemetry.io/proto/otlp/resource/v1"
 	otlptracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
-	otplogsv1 "go.opentelemetry.io/proto/otlp/logs/v1"
 )
 
 func TestTraceIngest(t *testing.T) {

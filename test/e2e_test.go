@@ -20,8 +20,8 @@ import (
 	otlptracehttp "go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
-	otlpcommonv1 "go.opentelemetry.io/proto/otlp/common/v1"
 	collectorlogsv1 "go.opentelemetry.io/proto/otlp/collector/logs/v1"
+	otlpcommonv1 "go.opentelemetry.io/proto/otlp/common/v1"
 	otplogsv1 "go.opentelemetry.io/proto/otlp/logs/v1"
 	otlpresourcev1 "go.opentelemetry.io/proto/otlp/resource/v1"
 )
