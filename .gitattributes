@@ -1,0 +1,21 @@
+* text=auto eol=lf
+
+# Go tooling assumes LF: with core.autocrlf=true on Windows, a CRLF working copy
+# makes `gofmt -l .` flag every file even though the committed content is clean.
+*.go   text eol=lf
+*.mod  text eol=lf
+*.sum  text eol=lf
+
+# Executed by `sh`; CRLF makes the shebang line fail with "bad interpreter".
+*.sh   text eol=lf
+
+*.rs   text eol=lf
+*.toml text eol=lf
+*.md   text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.html text eol=lf
+
+# Lockfiles are generated — keep diffs out of review and out of language stats.
+Cargo.lock -diff linguist-generated
+go.sum     -diff linguist-generated
