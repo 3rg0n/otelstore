@@ -1,0 +1,19 @@
+.gitattributes
+  s_51b7e96b3e6839::t_fbcef387ed88f8 1-21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "01af66a9391b57a9fb8b01e34a0da41b295c6010",
+  "prompts": {},
+  "sessions": {
+    "s_51b7e96b3e6839": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "70b7f846-0c83-4836-97b1-612d2e4d70e6",
+        "model": "claude-opus-5"
+      },
+      "human_author": "3rg0n <62959009+3rg0n@users.noreply.github.com>"
+    }
+  }
+}
