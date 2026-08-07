@@ -22,6 +22,7 @@ CGO_ENABLED=0 go build -o otelstore ./cmd/otelstore
 ./otelstore -db-path ./telemetry.db
 
 # full gate before a PR
+gofmt -l .           # must list nothing (CI fails on any output); fix: gofmt -w .
 CGO_ENABLED=0 go build ./...
 go vet ./...
 go test ./...
@@ -43,9 +44,9 @@ govulncheck ./...
 sh scripts/build-release.sh
 ```
 
-CI (`.github/workflows/ci.yml`) runs three jobs on every push/PR: build+vet+test,
-the tagged e2e suite, and the security scanners above — all with actions pinned
-by commit SHA. A `v*` tag triggers `.github/workflows/release.yml`, which builds
+CI (`.github/workflows/ci.yml`) runs three jobs on every push/PR:
+gofmt+build+vet+test, the tagged e2e suite, and the security scanners above —
+all with actions pinned by commit SHA. A `v*` tag triggers `.github/workflows/release.yml`, which builds
 release binaries + SBOM (CycloneDX) and publishes a GitHub Release.
 
 ## Architecture
