@@ -1,0 +1,29 @@
+docs/usage.md
+  s_51b7e96b3e6839::t_08ffefcf721b71 155-157
+THREAT_MODEL.md
+  s_51b7e96b3e6839::t_0e572973815cfe 84
+CHANGELOG.md
+  s_51b7e96b3e6839::t_00cba3ed4cc936 23-29
+  s_51b7e96b3e6839::t_0c0125f988b961 55-57
+internal/store/store.go
+  s_51b7e96b3e6839::t_482e92e628157c 270-273,364-369
+internal/store/security_test.go
+  s_51b7e96b3e6839::t_723284c6e79658 9,469-550
+  s_51b7e96b3e6839::t_f41df82f607059 413-468,551-552
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "cfb76c6208860c08f1e7080790311c1d4ede7842",
+  "prompts": {},
+  "sessions": {
+    "s_51b7e96b3e6839": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "70b7f846-0c83-4836-97b1-612d2e4d70e6",
+        "model": "claude-opus-5"
+      },
+      "human_author": "3rg0n <62959009+3rg0n@users.noreply.github.com>"
+    }
+  }
+}
