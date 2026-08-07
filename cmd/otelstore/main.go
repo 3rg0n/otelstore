@@ -19,6 +19,7 @@ import (
 	"github.com/3rg0n/otelstore/internal/mcpserver"
 	"github.com/3rg0n/otelstore/internal/query"
 	"github.com/3rg0n/otelstore/internal/receiver"
+	"github.com/3rg0n/otelstore/internal/redact"
 	"github.com/3rg0n/otelstore/internal/store"
 )
 
@@ -39,6 +40,7 @@ func main() {
 	mcpAddr := flag.String("mcp-addr", "127.0.0.1:4320", "Address for MCP query server")
 	authToken := flag.String("auth-token", "", "Bearer token for authentication (if empty, auth disabled). Prefer -auth-token-file or OTELSTORE_AUTH_TOKEN_FILE to avoid exposing the token in process args.")
 	authTokenFile := flag.String("auth-token-file", "", "Path to a file containing the bearer token (avoids exposing it via argv/env). Also OTELSTORE_AUTH_TOKEN_FILE.")
+	redactAttrs := flag.String("redact-attrs", "", "Comma-separated attribute keys whose values are replaced with [REDACTED] at ingest. Exact key or prefix glob (e.g. \"authorization,gen_ai.prompt*\"). Case-insensitive. Also OTELSTORE_REDACT_ATTRS.")
 	retention := flag.Duration("retention", 0, "Age-based retention: delete data older than this (e.g. 4320h = 180 days); 0 disables")
 	maxSize := flag.Int64("max-size", 0, "Size cap in bytes: evict oldest rows (FIFO) until the DB is under this; 0 disables")
 	flag.Parse()
@@ -100,6 +102,20 @@ func main() {
 		log.Fatalf("failed to init schema: %v", err)
 	}
 	defer s.Close()
+
+	// Attribute redaction, if configured. Applied at ingest before anything is
+	// written, so a redacted value never reaches the database file.
+	redactRules := *redactAttrs
+	if redactRules == "" {
+		redactRules = os.Getenv("OTELSTORE_REDACT_ATTRS")
+	}
+	if redactor := redact.New(redact.ParseRules(redactRules)); redactor != nil {
+		s.SetRedactor(redactor)
+		// #nosec G706 -- redact.New strips control characters from every rule, so
+		// the rule names echoed here cannot inject or forge log lines (CWE-117).
+		log.Printf("Attribute redaction enabled for %d key rule(s): %s",
+			len(redactor.Rules()), strings.Join(redactor.Rules(), ", "))
+	}
 
 	// Create handlers
 	ingestHandler := receiver.NewHandler(s)

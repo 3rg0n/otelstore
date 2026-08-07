@@ -5,9 +5,14 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"path/filepath"
+	"strings"
 
 	_ "modernc.org/sqlite"
+
+	"github.com/3rg0n/otelstore/internal/redact"
 
 	otlpcommonv1 "go.opentelemetry.io/proto/otlp/common/v1"
 	otplogsv1 "go.opentelemetry.io/proto/otlp/logs/v1"
@@ -19,11 +24,60 @@ import (
 // Store is a SQLite-backed OTLP telemetry store.
 type Store struct {
 	db *sql.DB
+	// redactor is nil unless the operator configured redaction rules. The store
+	// applies it to merged attributes without interpreting any key itself — the
+	// key names come entirely from operator config, keeping the store generic.
+	redactor *redact.Redactor
+}
+
+// SetRedactor installs an attribute redactor, applied to every merged attribute
+// map at ingest before anything is persisted. A nil redactor disables redaction.
+// Call it during setup, before serving: it is not safe against concurrent
+// ingest.
+func (s *Store) SetRedactor(r *redact.Redactor) {
+	s.redactor = r
+}
+
+// MemoryPath is the sentinel path that selects an ephemeral in-memory database.
+const MemoryPath = ":memory:"
+
+// ErrDBPathURI rejects a SQLite URI-form path. The driver accepts
+// "file:...?_pragma=..." and would apply those pragmas, so a URI in -db-path is
+// a way to reconfigure the database engine through what is documented as a
+// plain filename. Operators supply this flag, so this is defense-in-depth for
+// the case where the launch config is less trusted than the operator (a
+// supervisor unit, container arg, or orchestration template someone else can
+// edit) — not a fix for an attacker-facing input.
+var ErrDBPathURI = errors.New("db path must be a plain file path or " + MemoryPath + ", not a URI")
+
+// validateDBPath accepts ":memory:" or a plain filesystem path, rejecting
+// URI-form paths. It returns the path to hand the driver.
+func validateDBPath(path string) (string, error) {
+	if path == MemoryPath {
+		return path, nil
+	}
+	if path == "" {
+		return "", errors.New("db path is empty")
+	}
+	// The driver treats a "file:" prefix as a URI; anything with a scheme-like
+	// prefix or an embedded query string is rejected rather than silently
+	// reinterpreted.
+	lower := strings.ToLower(path)
+	if strings.HasPrefix(lower, "file:") || strings.Contains(path, "?") {
+		return "", ErrDBPathURI
+	}
+	return filepath.Clean(path), nil
 }
 
 // Open opens or creates a SQLite database at the given path.
-// If path is ":memory:", an in-memory database is used.
+// If path is ":memory:", an in-memory database is used. Any other value must be
+// a plain filesystem path — see validateDBPath.
 func Open(path string) (*Store, error) {
+	path, err := validateDBPath(path)
+	if err != nil {
+		return nil, err
+	}
+
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
@@ -38,9 +92,20 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
+	if path == MemoryPath {
+		// Each connection to a plain ":memory:" DSN gets its own private
+		// database, so a second pooled connection sees no schema at all
+		// ("no such table: spans"). Sequential use never notices — the pool
+		// hands back the one connection — but concurrent ingest opens a second
+		// and fails. Pin the pool to one connection so an in-memory run behaves
+		// like a single database. (The alternative, a shared-cache URI, is
+		// exactly the URI form validateDBPath rejects.)
+		db.SetMaxOpenConns(1)
+	}
+
 	// WAL + NORMAL sync: concurrent read while ingesting, and far fewer fsyncs
 	// than the default. Batches are still transaction-wrapped in Insert*.
-	if path != ":memory:" {
+	if path != MemoryPath {
 		for _, pragma := range []string{
 			"PRAGMA journal_mode=WAL",
 			"PRAGMA synchronous=NORMAL",
@@ -201,6 +266,26 @@ func mergeAttributes(
 	return merged
 }
 
+// mergedAttrs merges resource/scope/record attributes and applies redaction.
+// Every record-level insert path goes through it, so a new signal cannot
+// accidentally skip redaction by calling mergeAttributes directly. Span *events*
+// carry their own nested attribute map that is not merged with resource/scope;
+// InsertSpans applies the redactor to those separately.
+//
+// Redaction runs before extractMetadata deliberately: run_id/job_id are promoted
+// to indexed columns, so extracting first would copy an unredacted value into a
+// column and defeat the redaction for any operator who chose to redact a
+// correlation key.
+func (s *Store) mergedAttrs(
+	resource *otlpresourcev1.Resource,
+	scope *otlpcommonv1.InstrumentationScope,
+	recordAttrs []*otlpcommonv1.KeyValue,
+) map[string]any {
+	attrs := mergeAttributes(resource, scope, recordAttrs)
+	s.redactor.Apply(attrs)
+	return attrs
+}
+
 // extractMetadata extracts run_id and job_id from attributes.
 func extractMetadata(attrs map[string]any) (runID, jobID string) {
 	if v, ok := attrs["run_id"]; ok {
@@ -250,7 +335,7 @@ func (s *Store) InsertSpans(
 
 	for _, span := range spans {
 		// Merge attributes
-		attrs := mergeAttributes(resource, scope, span.Attributes)
+		attrs := s.mergedAttrs(resource, scope, span.Attributes)
 		runID, jobID := extractMetadata(attrs)
 
 		// Hex-encode trace/span IDs
@@ -276,6 +361,12 @@ func (s *Store) InsertSpans(
 				for _, kv := range evt.Attributes {
 					eventAttrs[kv.Key] = convertAnyValue(kv.Value)
 				}
+				// Event attributes are a second, nested attribute map on the same
+				// span, so they need redaction too — they are not merged with
+				// resource/scope, hence the direct Apply rather than mergedAttrs.
+				// An exporter that puts a prompt on a span event rather than the
+				// span would otherwise bypass redaction entirely.
+				s.redactor.Apply(eventAttrs)
 				events[i] = map[string]any{
 					"name":       evt.Name,
 					"time_ns":    evt.TimeUnixNano,
@@ -339,7 +430,7 @@ func (s *Store) InsertLogs(
 
 	for _, log := range logs {
 		// Merge attributes
-		attrs := mergeAttributes(resource, scope, log.Attributes)
+		attrs := s.mergedAttrs(resource, scope, log.Attributes)
 		runID, jobID := extractMetadata(attrs)
 
 		// In OpenTelemetry an "event" is a log record carrying an event.name.
@@ -426,7 +517,7 @@ func (s *Store) InsertMetrics(
 		if gauge := metric.GetGauge(); gauge != nil {
 			for _, dp := range gauge.GetDataPoints() {
 				valueDouble := extractDoubleValue(dp)
-				attrs := mergeAttributes(resource, scope, dp.GetAttributes())
+				attrs := s.mergedAttrs(resource, scope, dp.GetAttributes())
 				runID, jobID := extractMetadata(attrs)
 
 				attrsJSON, err := json.Marshal(attrs)
@@ -449,7 +540,7 @@ func (s *Store) InsertMetrics(
 		if sum := metric.GetSum(); sum != nil {
 			for _, dp := range sum.GetDataPoints() {
 				valueDouble := extractDoubleValue(dp)
-				attrs := mergeAttributes(resource, scope, dp.GetAttributes())
+				attrs := s.mergedAttrs(resource, scope, dp.GetAttributes())
 				runID, jobID := extractMetadata(attrs)
 
 				attrsJSON, err := json.Marshal(attrs)

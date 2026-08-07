@@ -73,6 +73,15 @@ middleware, the retention sweeper goroutine, and graceful shutdown.
   Retention is two independent mechanisms: `DeleteBefore` (age-based, driven
   by `-retention`) and `EnforceMaxSize`/`DBSize` (size-based FIFO eviction,
   driven by `-max-size`) — both run from the same sweeper goroutine in `main.go`.
+  Two constraints in `Open` that look incidental but aren't: `validateDBPath`
+  rejects SQLite URI-form paths (`file:...?_pragma=...` would let a launch config
+  reconfigure the engine through what's documented as a filename), and a
+  `:memory:` database pins the pool to one connection — each connection to a
+  plain `:memory:` DSN gets its own private database, so concurrent ingest on the
+  *default* db-path failed with `no such table: spans` until this was set.
+  Every insert path merges attributes through the single `mergedAttrs` helper,
+  which applies the optional redactor; don't call `mergeAttributes` directly from
+  a new signal or that signal silently skips redaction.
 - **`internal/receiver`** — HTTP/protobuf OTLP ingest (`/v1/traces`,
   `/v1/logs`, `/v1/metrics`), unmarshals the collector proto types and hands
   spans off to `store`. Request bodies are capped via `http.MaxBytesReader`
@@ -105,6 +114,16 @@ middleware, the retention sweeper goroutine, and graceful shutdown.
   injection). Empty token = auth disabled. The token itself can come from
   `-auth-token`, `OTELSTORE_AUTH_TOKEN`, or (least exposed — not visible in
   argv/env) `-auth-token-file` / `OTELSTORE_AUTH_TOKEN_FILE`.
+- **`internal/redact`** — opt-in attribute-value redaction, configured by
+  `-redact-attrs` / `OTELSTORE_REDACT_ATTRS` (exact key or `prefix*` glob,
+  case-insensitive) and applied by `store.mergedAttrs` at ingest. The rule names
+  live in operator config, never in code — that's what keeps the store generic
+  while still allowing redaction, so **don't add a built-in deny-list** of
+  `gen_ai.*` or any other keys. Redaction runs before `run_id`/`job_id` are
+  promoted to columns, so redacting a correlation key redacts the column too;
+  reordering those two steps would leave the secret in an indexed column.
+  Rules are sanitized of control characters because they're echoed in the startup
+  log (CWE-117), matching how `auth`/`receiver` handle logged fields.
 - **`emit/`** (Go) and **`emit/rust`** — the *only* sanctioned way for
   instrumented code to start spans against this store's contract. See below.
   (This used to be a separate `emit/go` submodule under a `go.work`; it was
@@ -144,8 +163,12 @@ healer's queries to work:
 
 ### Security notes worth knowing before changing auth/ingest paths
 
-See `THREAT_MODEL.md` for the full MAESTRO write-up. The backlog items already
-fixed (audit logging, non-loopback bind warning, token-file, MCP auth gap,
-DoS body/message size bounds, pinned CI scanner versions, SBOM/Dependabot) are
-the ones most likely to look like "missing" if you're only skimming the code
-— check `CHANGELOG.md`'s `[Unreleased]` section before assuming a gap is real.
+See `THREAT_MODEL.md` for the full MAESTRO write-up. **All 16 findings are
+remediated** — the risk table there is the original assessment, kept as the
+record; the "Remediation Status" section is the current state. Read the layer
+analysis as history, not as a description of `main`. The fixes most likely to look
+"missing" if you're only skimming (audit logging, non-loopback bind warning,
+token-file, MCP auth wrapping, DoS body/message-size and per-connection bounds,
+db-path validation, attribute redaction, pinned CI scanners, SBOM/Dependabot) are
+all in place — check `CHANGELOG.md`'s `[Unreleased]` section before assuming a gap
+is real.

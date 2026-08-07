@@ -63,6 +63,53 @@ confirmed the queries are correctly parameterized.
 
 Deduped CVE scan: **no dependency vulnerabilities** (govulncheck clean).
 
+## Remediation Status (as of 2026-08-07)
+
+**All 16 findings are remediated.** The table above is the original 2026-07-21
+assessment and is kept unedited as the record of what was found; this section is
+the current state. The layer analysis below likewise describes the pre-fix code —
+read it as history, not as a description of `main`.
+
+| # | Status | Where |
+|---|--------|-------|
+| 1 | Fixed | `main.go` wraps `mcpHandler` in `auth.Middleware`; e2e asserts 401 |
+| 2 | Fixed | `store.GetTrace` LIMIT `maxTraceSpans` (10000) |
+| 3 | Fixed | `http.MaxBytesReader` (64 MiB) in `internal/receiver` |
+| 4 | Fixed | auth failures audit-logged (HTTP + gRPC), fields sanitized |
+| 5 | Fixed | `grpc.MaxRecvMsgSize(64 MiB)` |
+| 6 | Fixed | CI pins gosec/staticcheck/govulncheck; actions pinned by SHA |
+| 7 | Fixed | `-auth-token-file` / `OTELSTORE_AUTH_TOKEN_FILE` |
+| 8 | Fixed | startup warning on non-loopback bind with auth disabled |
+| 9 | Fixed | `release.yml` `contents:write` scoped to the release job |
+| 10 | Fixed | `internal/redact` + `-redact-attrs`; applied at ingest via `Store.mergedAttrs` (+ span events) |
+| 11 | Fixed | MCP startup line states auth status |
+| 12 | Fixed | CycloneDX SBOM attached to releases |
+| 13 | Fixed | `.github/dependabot.yml` (gomod, cargo, actions) |
+| 14 | Fixed | `store.validateDBPath` rejects URI-form paths (`file:`, `?`) |
+| 15 | Fixed | `MaxConcurrentStreams`, `MaxConnectionIdle`, keepalive enforcement |
+| 16 | Fixed | `.gitignore` covers `*.jks`/`*.jceks` |
+
+Two notes on the fixes rather than the findings:
+
+- **#10 is opt-in and stays that way.** The store never interprets attribute
+  names (see CONTRIBUTING.md), so the keys to redact come entirely from operator
+  config — otelstore ships no default deny-list. With no `-redact-attrs` the
+  behaviour is unchanged: attributes persist verbatim. Redaction runs *before*
+  `run_id`/`job_id` are promoted to indexed columns, so redacting a correlation
+  key redacts the column too.
+- **#14 is defense-in-depth, not an attacker-facing fix.** `-db-path` is operator
+  input. The value is that a launch config (supervisor unit, container arg,
+  orchestration template) someone else can edit cannot reconfigure the SQLite
+  engine through what is documented as a plain filename.
+
+The L4 note about the retention sweeper busy-looping under a tiny `-max-size` was
+re-checked and does not apply: `EnforceMaxSize` stops when a pass deletes nothing.
+
+Fixing #15 surfaced an unrelated correctness bug: with the default
+`-db-path :memory:`, each pooled connection got its own private database, so
+*concurrent* ingest failed with `no such table: spans`. The in-memory pool is now
+pinned to one connection (`store.Open`), with a regression test.
+
 ## Layer Analysis
 
 ### Layer 1: Foundation Model

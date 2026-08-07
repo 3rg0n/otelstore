@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"fmt"
 	"net/http"
+	"os"
 	"testing"
 
 	tracesv1 "go.opentelemetry.io/proto/otlp/trace/v1"
@@ -190,6 +191,93 @@ func TestPersistsAcrossRestart(t *testing.T) {
 	}
 	if v, ok := mr.Metrics[0]["value_double"].(float64); !ok || v != 42 {
 		t.Fatalf("persisted metric value = %v, want 42", mr.Metrics[0]["value_double"])
+	}
+}
+
+// TestRedactionAtIngest drives -redact-attrs through the real binary: the secret
+// must never reach the database file, and unconfigured attributes must come back
+// untouched. Both halves matter — a redactor that redacted everything would pass
+// a secret-only assertion while destroying the telemetry.
+func TestRedactionAtIngest(t *testing.T) {
+	bin := buildBinary(t)
+	db := dbFile(t)
+	inst := launch(t, bin, db, "-redact-attrs", "authorization,gen_ai.prompt*")
+	defer inst.stop()
+
+	conn := grpcConn(t, inst.grpcAddr)
+	defer conn.Close()
+	ctx := authCtx(authToken)
+
+	const secret = "Bearer sk-live-e2e-must-not-persist"
+	const runID, jobID = "RUN-redact", "JOB-redact"
+	traceID := []byte{0xBB, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
+
+	if err := sendTraceWithAttrsGRPC(t, conn, ctx, traceID, runID, jobID,
+		strAttr("authorization", secret),
+		strAttr("gen_ai.prompt.0.content", "private user text"),
+		strAttr("gen_ai.response.text", "keep me"),
+	); err != nil {
+		t.Fatalf("send trace: %v", err)
+	}
+
+	base := "http://" + inst.queryAddr
+	eventually(t, "redacted span queryable", func() error {
+		var qr queryResult
+		if c := getJSON(t, base+"/v1/query?job_id="+jobID, authToken, &qr); c != http.StatusOK {
+			return fmt.Errorf("status %d", c)
+		}
+		if len(qr.Spans) < 1 {
+			return fmt.Errorf("no spans yet")
+		}
+		attrs, ok := qr.Spans[0]["attributes"].(map[string]any)
+		if !ok {
+			return fmt.Errorf("attributes is %T, want object", qr.Spans[0]["attributes"])
+		}
+		if got := attrs["authorization"]; got != "[REDACTED]" {
+			return fmt.Errorf("authorization = %v, want [REDACTED]", got)
+		}
+		if got := attrs["gen_ai.prompt.0.content"]; got != "[REDACTED]" {
+			return fmt.Errorf("gen_ai.prompt.0.content = %v, want [REDACTED]", got)
+		}
+		// Unconfigured keys must survive: redaction is opt-in per key, not a
+		// blanket scrub.
+		if got := attrs["gen_ai.response.text"]; got != "keep me" {
+			return fmt.Errorf("gen_ai.response.text = %v, want \"keep me\"", got)
+		}
+		if got := attrs["run_id"]; got != runID {
+			return fmt.Errorf("run_id = %v, want %s", got, runID)
+		}
+		return nil
+	})
+
+	// The strongest assertion: the secret is absent from the bytes on disk. A
+	// response-level check alone would pass if redaction happened at query time
+	// instead of at ingest.
+	//
+	// The WAL has to be included. The store runs in WAL mode and stop() kills the
+	// process without a checkpoint, so a freshly-written row lives in
+	// "<db>-wal", not in the main file — scanning only the main file would find
+	// nothing at all and the absence of the secret would prove nothing.
+	inst.stop()
+	var raw []byte
+	for _, suffix := range []string{"", "-wal"} {
+		b, err := os.ReadFile(db + suffix)
+		if err != nil {
+			if suffix == "" {
+				t.Fatalf("read db file: %v", err)
+			}
+			continue // no WAL is fine if it was already checkpointed
+		}
+		raw = append(raw, b...)
+	}
+
+	if bytes.Contains(raw, []byte(secret)) {
+		t.Error("the secret was persisted to disk; redaction is not happening at ingest")
+	}
+	// Sanity check on the search itself: a value that was NOT redacted must be
+	// findable in the same bytes, otherwise "absent" proves nothing.
+	if !bytes.Contains(raw, []byte("keep me")) {
+		t.Error("cannot find a known-unredacted value on disk; the absence check above is not meaningful")
 	}
 }
 

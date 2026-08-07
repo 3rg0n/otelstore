@@ -111,11 +111,32 @@ curl "localhost:4319/v1/metrics?name=claude_code.cost.usage"
 | `-mcp-addr`    | `:4320`     | MCP query server address                               |
 | `-auth-token`  | _(empty)_   | Bearer token; if set, required on all endpoints except `/healthz` and `/readyz`. Also `OTELSTORE_AUTH_TOKEN` |
 | `-auth-token-file` | _(empty)_ | Read the bearer token from a file (avoids exposing it in process args/env). Also `OTELSTORE_AUTH_TOKEN_FILE` |
+| `-redact-attrs` | _(empty)_  | Attribute keys whose values are replaced with `[REDACTED]` at ingest. Also `OTELSTORE_REDACT_ATTRS` |
 | `-retention`   | `0`         | Age FIFO: delete data older than this (e.g. `4320h` = 180 days); `0` disables |
 | `-max-size`    | `0`         | Size FIFO: evict oldest rows until the DB is under this many bytes; `0` disables |
 
 When `-auth-token` is empty, otelstore is open (intended for localhost). When
 set, every ingest and query request must send `Authorization: Bearer <token>`.
+
+`-db-path` must be a plain filesystem path or `:memory:` — a SQLite URI
+(`file:...?_pragma=...`) is rejected rather than silently reconfiguring the
+database engine.
+
+**Redaction:** telemetry attributes can carry secrets and PII, and otelstore
+stores them verbatim, so the database file outlives the incident it was opened
+for. `-redact-attrs` takes a comma-separated list of exact keys or prefix globs
+and replaces those values before anything is written:
+
+```sh
+otelstore -redact-attrs "authorization,gen_ai.prompt*"
+```
+
+Matching is case-insensitive; `gen_ai.prompt*` matches any key with that prefix.
+The key survives with a `[REDACTED]` value, so a reader can tell "withheld" from
+"never emitted". It is opt-in and there is no default list: otelstore never
+interprets attribute names, so which keys are sensitive is yours to declare. Note
+that redacting `run_id` or `job_id` also redacts the indexed column, which makes
+those records unqueryable by that key.
 
 **Binding:** by default every port binds `127.0.0.1` (loopback only) — local-only,
 and no host-firewall prompt. To accept traffic from other machines, pass an
