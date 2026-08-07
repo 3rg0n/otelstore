@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   build-test:
-    name: build · vet · test
+    name: gofmt · build · vet · test
     runs-on: ubuntu-latest
     steps:
       # actions/checkout v7.0.1 — pinned by SHA (supply-chain)
@@ -20,6 +20,21 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
           go-version: '1.26.x'
+
+      - name: Format (gofmt)
+        # gofmt -l exits 0 even when it lists unformatted files, so the check has
+        # to test its output explicitly. Without this step nothing in the gate
+        # looks at formatting: build/vet/test and all three scanners pass on
+        # unformatted code, so drift accumulates silently (it did — see #11).
+        # Print the diff before failing so the fix is `gofmt -w .`, not a guess.
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "::error::gofmt: these files need formatting (run: gofmt -w .)"
+            echo "$unformatted"
+            gofmt -d .
+            exit 1
+          fi
 
       - name: Build (CGO-free, all packages)
         run: CGO_ENABLED=0 go build ./...

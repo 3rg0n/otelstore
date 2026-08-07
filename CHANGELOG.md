@@ -6,6 +6,29 @@ semantic versioning once released.
 
 ## [Unreleased]
 
+### Added — 2026-08-07 (formatting gate)
+
+- **CI fails on unformatted code.** The `build · vet · test` job now runs
+  `gofmt -l .` first (renamed `gofmt · build · vet · test`). Nothing in the gate
+  previously looked at formatting — `go build`, `go vet`, `go test`, gosec,
+  staticcheck and govulncheck all pass on unformatted source — so drift
+  accumulated unnoticed in nine files. `gofmt -l` exits 0 even when it lists
+  files, so the step tests its output explicitly and prints `gofmt -d .` before
+  failing. Documented in `CONTRIBUTING.md` and `CLAUDE.md`.
+
+### Fixed — 2026-08-07 (line endings, formatting drift)
+
+- **`.gitattributes` pins `eol=lf`** for all text files. Without it,
+  `core.autocrlf=true` on Windows produced a CRLF working copy against LF
+  committed content, so `gofmt -l .` flagged all 20 Go files locally while CI
+  (Linux) was clean — enough noise to hide a real regression. `*.sh` also needs
+  LF because `scripts/build-release.sh` runs under `sh` and a CRLF shebang fails
+  with `bad interpreter`. `git add --renormalize .` staged no changes, confirming
+  committed content was already LF.
+- **`gofmt -w` across nine files** — mis-ordered imports within a group and
+  struct-tag/trailing-comment misalignment. Whitespace and ordering only; no
+  logic changed. Only visible once the working copy checked out as LF.
+
 ### Added — 2026-08-05 (OTLP/JSON ingest)
 
 - **HTTP ingest accepts OTLP/JSON** (#7). `:4318` now decodes both encodings on
