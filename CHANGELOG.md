@@ -6,6 +6,19 @@ semantic versioning once released.
 
 ## [Unreleased]
 
+## [v0.2.0] — 2026-08-08
+
+First release since `v0.1.4` (2026-07-21), covering nine commits. Headlines:
+**all 16 MAESTRO threat-model findings are now remediated** (the last three —
+attribute redaction, gRPC per-connection bounds, `-db-path` validation — land
+here), HTTP ingest accepts **OTLP/JSON** so clients that only speak it no longer
+get a 400 on every export, and ingest rejections are no longer silent. Minor
+rather than patch: `-redact-attrs` and OTLP/JSON are new user-visible surface.
+
+No breaking changes to flags, the query API, or the store schema; upgrading is a
+binary swap. Redaction is opt-in and off by default, so behaviour is unchanged
+unless you set `-redact-attrs`.
+
 ### Added — 2026-08-07 (attribute redaction; threat-model backlog closed)
 
 - **`-redact-attrs` / `OTELSTORE_REDACT_ATTRS`: opt-in attribute redaction at
@@ -115,6 +128,13 @@ a remediation-status table.
   separators (U+2028/U+2029) and format characters such as bidi overrides. Go's
   logger treats these as ordinary runes, but log viewers and aggregators may
   render them as a line break or use them to disguise a forged line.
+
+## [v0.1.0] – [v0.1.4] — 2026-07-20 / 2026-07-21
+
+Everything below shipped across the five `v0.1.x` tags. Those releases were cut
+without stamping this file, so the sections sat under `[Unreleased]`; they are
+grouped here rather than split per tag, since attributing each one to a specific
+`v0.1.x` after the fact would be guesswork.
 
 ### Added — 2026-07-21 (threat-model hardening backlog)
 
