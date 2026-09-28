@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 opentelemetry = "0.32"
-opentelemetry_sdk = { version = "0.32", features = ["trace", "testing"] }
+opentelemetry_sdk = { version = "0.33", features = ["trace", "testing"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
