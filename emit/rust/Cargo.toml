@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-opentelemetry = "0.32"
+opentelemetry = "0.33"
 opentelemetry_sdk = { version = "0.32", features = ["trace", "testing"] }
 
 [dev-dependencies]
